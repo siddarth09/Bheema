@@ -1672,7 +1672,8 @@
    <ros2_control name="G1MujocoSystem" type="system">
    <hardware>
       <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
-      <param name="mujoco_model">/home/sid/projects25/src/bheema/unitree_g1/scene_with_hands.xml</param>
+      <param name="mujoco_model">$(find bheema)/unitree_g1/scene_with_hands.xml</param>
+      <param name="override_start_position_file">$(find bheema)/config/start_positions.xml</param>
       <param name="sim_speed_factor">1.0</param>
    </hardware>
 
