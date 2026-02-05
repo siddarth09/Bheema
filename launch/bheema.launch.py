@@ -25,6 +25,13 @@ def generate_launch_description():
         )
     }
 
+    imu_sensor_broadcaster_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["imu_sensor_broadcaster"],
+        output="screen",
+    )
+
     # -------------------------------------------------
     # Controllers YAML
     # -------------------------------------------------
@@ -92,6 +99,7 @@ def generate_launch_description():
             robot_state_publisher,
             ros2_control_node,
             joint_state_broadcaster_spawner,
+            imu_sensor_broadcaster_spawner,
             g1_leg_controller_spawner,
             g1_waist_controller_spawner,
         ]

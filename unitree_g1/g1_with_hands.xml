@@ -83,7 +83,7 @@
       <geom class="visual" material="black" mesh="pelvis"/>
       <geom class="visual" mesh="pelvis_contour_link"/>
       <geom class="collision" mesh="pelvis_contour_link"/>
-      <site name="imu_in_pelvis" size="0.01" pos="0.04525 0 -0.08339"/>
+      <site name="imu_sensor" size="0.01" pos="0.04525 0 -0.08339"/>
       <body name="left_hip_pitch_link" pos="0 0.064452 -0.1027">
         <inertial pos="0.002741 0.047791 -0.02606" quat="0.954862 0.293964 0.0302556 0.030122" mass="1.35"
           diaginertia="0.00181517 0.00153422 0.00116212"/>
@@ -483,11 +483,13 @@
   </actuator>
 
   <sensor>
-    <gyro name="imu-torso-angular-velocity" site="imu_in_torso" noise="5e-4" cutoff="34.9"/>
-    <accelerometer name="imu-torso-linear-acceleration" site="imu_in_torso" noise="1e-2" cutoff="157"/>
-    <gyro name="imu-pelvis-angular-velocity" site="imu_in_pelvis" noise="5e-4" cutoff="34.9"/>
-    <accelerometer name="imu-pelvis-linear-acceleration" site="imu_in_pelvis" noise="1e-2" cutoff="157"/>
+      <framequat name="imu_sensor_quat" objtype="site" objname="imu_sensor" />
+      <gyro name="imu_sensor_gyro" site="imu_sensor" />
+      <accelerometer name="imu_sensor_accel" site="imu_sensor" />
   </sensor>
+
+
+
 
   <keyframe>
     <key name="stand"
