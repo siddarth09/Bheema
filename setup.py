@@ -39,8 +39,9 @@ setup(
     
     entry_points={
         'console_scripts': [
-            # Ensure this matches your actual filename!
-            'convex_mpc_ros2 = bheema.convex_mpc_ros2:main',
+            
+            'bheema_node = bheema.bheema_node:main',
+            'reset = bheema.reset_pose:main'
         ],
     },
 )
