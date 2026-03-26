@@ -40,8 +40,8 @@ setup(
     entry_points={
         'console_scripts': [
             
-            'bheema_node = bheema.bheema_node:main',
-            'reset = bheema.reset_pose:main'
+            
+            
         ],
     },
 )
