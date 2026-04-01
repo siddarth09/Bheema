@@ -8,23 +8,29 @@ from dataclasses import dataclass
 # Leg Controller Setting (BIPED)
 # --------------------------------------------------------------------------------
 
-# 6D PD Gains for Swing Phase: [x, y, z, roll, pitch, yaw]
-KP_SWING = np.diag([2500, 2500, 2000, 400, 400, 400]) 
-KD_SWING = np.diag([60, 60, 40, 10, 10, 10]) 
-# Mapping from leg name to index in the mask
+KP_SWING = np.diag([2500, 3500, 1000, 400, 400, 400]) 
+KD_SWING = np.diag([120, 120, 120, 10, 10, 10]) 
+
+# Mapping from leg name to index in the 2-element biped mask
 LEG_INDEX = {
     "LEFT": 0,
     "RIGHT": 1,
 }
 
+# Mapping from leg name to the joint torque slice in the 49-DOF (C*dq + g) vector
+# Base = 0:6. Left Leg = 6:12. Right Leg = 12:18.
+JOINT_SLICES = {
+    "LEFT": slice(6, 12),
+    "RIGHT": slice(12, 18),
+}
+
 @dataclass
 class LegOutput:
     tau: np.ndarray       # shape (6,) - 6 joints per leg
-    pos_des: np.ndarray   # shape (3,) - Just storing translations for logging
+    pos_des: np.ndarray   # shape (3,)
     pos_now: np.ndarray   # shape (3,)
     vel_des: np.ndarray   # shape (3,)
     vel_now: np.ndarray   # shape (3,)
-
 
 class LegController():
         
@@ -37,100 +43,93 @@ class LegController():
         leg: str,
         g1: PinG1Model,
         gait: Gait,
-        contact_wrench: np.ndarray, # (6,) [Fx, Fy, Fz, Tx, Ty, Tz] from MPC
+        contact_wrench: np.ndarray, # (6,) [Fx, Fy, Fz, Tx, Ty, Tz]
         current_time: float,
     ):
-        # 1. Extract Identifiers
+        # 1. Extract Parameters
         leg_idx = LEG_INDEX[leg.upper()]
+        joint_slice = JOINT_SLICES[leg.upper()]
         foot_id = g1.left_foot_id if leg_idx == 0 else g1.right_foot_id
-        vcols = g1.idx_v_L if leg_idx == 0 else g1.idx_v_R
 
-        # 2. Get Kinematics & Dynamics from Pinocchio
-        _, dq = g1.get_full_q_dq()
+        # Jacobians
+        J_foot_world = g1.compute_leg_Jacobian_world(leg) # (6x6)
         
-        # 6xnv Full Spatial Jacobian (LOCAL_WORLD_ALIGNED)
-        J_full = pin.getFrameJacobian(g1.model, g1.data, foot_id, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)
-        J_leg = J_full[:, vcols] # 6x6 matrix mapping leg joint vels to foot spatial vel
+        # Pinocchio returns the full 6x49 Spatial Jacobian natively
+        J_full_foot_world = pin.getFrameJacobian(
+            g1.model, g1.data, foot_id, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
+        ) # (6x49)
 
-        # Mass Matrix and Non-Linear Effects (Coriolis + Gravity)
-        M = g1.data.M
-        nle = g1.data.nle # This is exactly (C*dq + g)
+        # Dynamics Terms (g: 49x1, C: 49x49, M: 49x49)
+        g, C, M = g1.compute_dynamics_terms()
+        dq = g1.current_config.get_dq()
 
         current_mask = gait.compute_current_mask(current_time)
         tau_cmd = np.zeros(6)
 
-        # Current Foot State
-        oMf_now = g1.data.oMf[foot_id]
-        foot_pos_now = oMf_now.translation.copy()
-        
-        spatial_vel_now = pin.getFrameVelocity(g1.model, g1.data, foot_id, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED).vector
-        foot_vel_now = spatial_vel_now[0:3]
-
+        # Initialize desired to current (using 6D extraction but storing 3D for logging)
+        foot_pos_now, foot_vel_now = g1.get_single_foot_state_in_world(leg)
         foot_pos_des = foot_pos_now.copy()
         foot_vel_des = foot_vel_now.copy()
 
-        # ---------------------------------------------------------
-        # Detect Takeoff Transition
-        # ---------------------------------------------------------
+        oMf_now = g1.data.oMf[foot_id]
+        spatial_vel_now = pin.getFrameVelocity(g1.model, g1.data, foot_id, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED).vector
+
+        # 2. Detect takeoff transition
         if self.last_mask[leg_idx] != current_mask[leg_idx] and current_mask[leg_idx] == 0:
             setattr(self, f"{leg}_takeoff_time", current_time)
             traj, td_pos = gait.compute_swing_traj_and_touchdown(g1, leg)
             setattr(self, f"{leg}_traj", traj)
             setattr(self, f"{leg}_td_pos", td_pos)
 
-        # ---------------------------------------------------------
-        # SWING PHASE 
-        # ---------------------------------------------------------
-        if current_mask[leg_idx] == 0:  
+        # 3. Swing vs stance
+        if current_mask[leg_idx] == 0:  # Swing phase
             takeoff_time = getattr(self, f"{leg}_takeoff_time")
             traj = getattr(self, f"{leg}_traj")
+
             time_since_takeoff = current_time - takeoff_time
+            foot_pos_des, foot_vel_des_3d, foot_acl_des_3d = traj(time_since_takeoff)
             
-            # Get 3D Trajectory targets
-            foot_pos_des, foot_vel_des, foot_acl_des = traj(time_since_takeoff)
-
-            # 1. Positional Error (3D)
+            # --- 6D ERROR COMPUTATION ---
+            # Position Error (3D)
             pos_error = foot_pos_des - foot_pos_now
-
-            # 2. Orientation Error (3D)
-            # We want the foot to land flat, aligned with the robot's yaw
+            
+            # Orientation Error (3D) -> Keep foot flat with ground
             R_now = oMf_now.rotation
             R_des = g1.R_z 
-            # Log3 maps the rotation matrix difference to a 3D angular error vector
             ori_error_local = pin.log3(R_now.T @ R_des)
             ori_error_world = R_now @ ori_error_local
-
-            # Combine into 6D Spatial Error
+            
+            # Combine to 6D Spatial Error
             spatial_error = np.concatenate([pos_error, ori_error_world])
             
-            # 3. Velocity Error (6D)
-            spatial_vel_des = np.concatenate([foot_vel_des, np.zeros(3)]) # Zero angular velocity desired
+            # Velocity Error (6D) -> Desired angular velocity is 0
+            spatial_vel_des = np.concatenate([foot_vel_des_3d, np.zeros(3)]) 
             spatial_vel_error = spatial_vel_des - spatial_vel_now
 
-            # 4. Feedforward Acceleration (6D)
-            spatial_acl_des = np.concatenate([foot_acl_des, np.zeros(3)])
+            # Acceleration Desired (6D) -> Desired angular accel is 0
+            spatial_acl_des = np.concatenate([foot_acl_des_3d, np.zeros(3)])
 
-            # 5. Operational Space Mass Matrix (Lambda) -> (6x6)
-            Lambda = np.linalg.pinv(J_full @ np.linalg.inv(M) @ J_full.T)
+            # --- OPERATIONAL SPACE DYNAMICS (Go2 Exact Emulation) ---
+            # Lambda: Cartesian Mass Matrix (6x6) computed from full 49x49 M matrix
+            Lambda = np.linalg.pinv(
+                J_full_foot_world @ np.linalg.inv(M) @ J_full_foot_world.T
+            )
             
-            # Bias Acceleration (Jdot * dq) -> (6,)
-            Jdot = pin.getFrameJacobianTimeVariation(g1.model, g1.data, foot_id, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)
-            Jdot_dq = Jdot @ dq
+            # Jdot_dq (6x1)
+            Jdot_dq = g1.compute_Jdot_dq_world(leg)
 
-            # 6. Compute 6D Virtual Force
+            # Feedforward term (6x1)
             f_ff = Lambda @ (spatial_acl_des - Jdot_dq)
-            force_6d = KP_SWING @ spatial_error + KD_SWING @ spatial_vel_error + f_ff
 
-            # 7. Map to Joint Torques + Add Coriolis/Gravity
-            tau_cmd = J_leg.T @ force_6d + nle[vcols]
+            # PD + feedforward in 6D Cartesian space
+            force_6d = KP_SWING @ spatial_error + KD_SWING @ spatial_vel_error + f_ff 
 
-        # ---------------------------------------------------------
-        # STANCE PHASE (Jacobian Transpose Control)
-        # ---------------------------------------------------------
-        else:  
-            # tau = J^T * (-Wrench_from_environment)
-            # We add nle (gravity compensation) so the MPC only needs to worry about external forces
-            tau_cmd = J_leg.T @ -contact_wrench
+            # Map to joint torques + add (C*dq + g) leg segment slice
+            tau_cmd = J_foot_world.T @ force_6d + (C @ dq + g)[joint_slice]
+
+        else:  # Stance phase
+            # Exact Go2 Logic: J.T @ -ContactForce
+            tau_cmd = J_foot_world.T @ -contact_wrench
 
         # Update mask memory
         self.last_mask[leg_idx] = current_mask[leg_idx]
@@ -139,6 +138,6 @@ class LegController():
             tau=tau_cmd,
             pos_des=foot_pos_des,
             pos_now=foot_pos_now,
-            vel_des=foot_vel_des,
+            vel_des=foot_vel_des_3d if 'foot_vel_des_3d' in locals() else foot_vel_now,
             vel_now=foot_vel_now,
         )

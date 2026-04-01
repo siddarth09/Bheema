@@ -11,21 +11,25 @@ from .g1_config import PinG1Model
 # --------------------------------------------------------------------------------
 # State Vector: [x, y, z, roll, pitch, yaw, vx, vy, vz, wx, wy, wz]
 COST_MATRIX_Q = np.diag([
-    1.0,    1.0,    2000.0,  # Near-zero X/Y weight to stop the torso from "anchoring"
-    1000.0, 3000.0, 5000.0,  # Keep Roll/Pitch/Yaw stiff for balance
-    100.0,  500.0,  500.0,   # Focus on tracking VELOCITY
+    100.0,   2000.0,  2000.0,  
+    1000.0, 3000.0, 15000.0,  
+    100.0,  2000.0,  500.0,   
     5000.0, 5000.0, 5000.0   
 ])
 # Control Vector: [fx, fy, fz, tx, ty, tz]
-COST_MATRIX_R = np.diag([0.1, 0.1, 0.1,  1.0, 1.0, 1.0] * 2)
+COST_MATRIX_R = np.diag([
+    0.1, 1.0, 0.1,  1.0, 1.0, 1.0,  
+    0.1, 1.0, 0.1,  1.0, 1.0, 1.0   
+])
 
 MU = 0.8            # Linear friction coefficient
-MU_TAU = 0.08       # Torsional friction coefficient (yaw rotation of the foot)
+MU_TAU = 0.1       # Torsional friction coefficient (yaw rotation of the foot)
 
 # Foot dimensions for Center of Pressure (CoP) constraints
-FOOT_LX = 0.15    # Half-length of the foot (m) (front/back)
-FOOT_LY = 0.15      # Half-width of the foot (m) (left/right)
-
+FOOT_LX = 0.12    # Half-length of the foot (m) (front/back)
+FOOT_LY = 0.05     # Half-width of the foot (m) (left/right)
+FOOT_LX_FRONT = 0.12  
+FOOT_LX_BACK = 0.05
 NX = 12     # State size (6-DOF 12 states)
 NU = 12     # Input size (2 feet x 6D Wrenches: Fx, Fy, Fz, Tx, Ty, Tz)
 
@@ -34,9 +38,9 @@ OPTS = {
     'warm_start_dual': True,
     'error_on_fail': False,
     "osqp": {
-        "eps_abs": 1e-3,
-        "eps_rel": 1e-3,
-        "max_iter": 400,
+        "eps_abs": 1e-2,
+        "eps_rel": 1e-2,
+        "max_iter": 1400,
         "polish": False,
         "verbose": False,
         'adaptive_rho': True,
@@ -106,7 +110,7 @@ class CentroidalMPC:
 
     def _compute_bounds(self, traj: ComTraj):
         fz_min = 23.0   # Minimum pressure to prevent foot slip
-        fz_max = 1200.0 
+        fz_max = 1200.0 # Maximum allowed vertical push 
         N = traj.N      
         nvars = self.nvars
         start_u = N * 12
@@ -117,13 +121,23 @@ class CentroidalMPC:
         # ---------------------------------------------------------
         # 1. STATE CONSTRAINTS (The first N*12 variables)
         # ---------------------------------------------------------
-        # Index 5 is Yaw in each state block [x, y, z, r, p, yaw, ...]
+        # State block layout: [x, y, z, roll, pitch, yaw, vx, vy, vz, wx, wy, wz]
         for i in range(N):
-            yaw_idx = i * 12 + 5
+            roll_idx  = i * 12 + 3
+            pitch_idx = i * 12 + 4
+            yaw_idx   = i * 12 + 5
+            
+            # Lock Roll and Pitch to +/- 15 degrees (0.26 rad)
+            # This prevents the torso from tipping over and causing Gimbal Lock
+            lbx_np[roll_idx, 0] = -0.26
+            ubx_np[roll_idx, 0] =  0.26
+            lbx_np[pitch_idx, 0] = -0.26
+            ubx_np[pitch_idx, 0] =  0.26
+
             # Lock Yaw to +/- 30 degrees (0.52 rad)
-            # This prevents the 180-degree "Helicopter" flip
+            # This prevents the 180-degree "Helicopter" spin
             lbx_np[yaw_idx, 0] = -0.52
-            ubx_np[yaw_idx, 0] = 0.52
+            ubx_np[yaw_idx, 0] =  0.52
 
         # ---------------------------------------------------------
         # 2. CONTROL CONSTRAINTS (The variables after N*12)
@@ -132,8 +146,6 @@ class CentroidalMPC:
         force_idx   = start_u + force_block                               
 
         contact = np.asarray(traj.contact_table, dtype=bool)  
-        leg_rows = np.array([[0, 1, 2, 3, 4, 5],
-                             [6, 7, 8, 9, 10, 11]])
 
         # --- A) Swing Legs: Zero out everything ---
         swing = ~contact
@@ -292,11 +304,11 @@ class CentroidalMPC:
                 rows.extend([r0, r0]); cols.extend([uk0+tx, uk0+fz]); vals.extend([-1.0, -FOOT_LY]); r0+=1
                 
                 # Ankle pitch torque (ty) cannot exceed what the foot length (X) can support
-                # 7. ty - Lx*fz <= 0
-                rows.extend([r0, r0]); cols.extend([uk0+ty, uk0+fz]); vals.extend([1.0, -FOOT_LX]); r0+=1
-                # 8. -ty - Lx*fz <= 0
-                rows.extend([r0, r0]); cols.extend([uk0+ty, uk0+fz]); vals.extend([-1.0, -FOOT_LX]); r0+=1
-
+                # 7. ty - L_back * fz <= 0 (Max POSITIVE pitch torque happens when leaning BACK on the heel)
+                rows.extend([r0, r0]); cols.extend([uk0+ty, uk0+fz]); vals.extend([1.0, -FOOT_LX_BACK]); r0+=1
+                
+                # 8. -ty - L_front * fz <= 0 (Max NEGATIVE pitch torque happens when leaning FORWARD on the toes)
+                rows.extend([r0, r0]); cols.extend([uk0+ty, uk0+fz]); vals.extend([-1.0, -FOOT_LX_FRONT]); r0+=1
                 # --- TORSIONAL FRICTION ---
                 # Yaw torque (tz) limited by normal force to prevent spinning in place
                 # 9. tz - mu_tau*fz <= 0

@@ -12,6 +12,7 @@ from bheema.com_traj import ComTraj
 from bheema.centroidal_mpc import CentroidalMPC
 from bheema.leg_controller import LegController
 from bheema.gait import Gait
+import matplotlib.pyplot as plt 
 from bheema.plotter import plot_mpc_result, plot_swing_foot_traj, plot_solve_time, hold_until_all_fig_closed
 
 # --------------------------------------------------------------------------------
@@ -37,17 +38,18 @@ class BodyCmdPhase:
     yaw_rate: float
 
 
-NOMINAL_Z = 0.68
+NOMINAL_Z = 0.74
 
 CMD_SCHEDULE = [
-    BodyCmdPhase(0.0, 1.0,  0.6,  0.0, NOMINAL_Z, 0.0),    
+    # Phase 1 (t=0s to 3s): Stand perfectly still (x_vel = 0.0) to settle physics
+    BodyCmdPhase(0.0, 3.0, 0.5, 0.0, NOMINAL_Z, 0.0), 
     
-    BodyCmdPhase(3.0, 10.0, 2.0, 0.0, NOMINAL_Z, 0.0), # Second gear: Striding
+    # Phase 2 (t=3s to 10s): Start walking forward at 0.5 m/s
+    BodyCmdPhase(3.0, 10.0, 0.5, 0.0, NOMINAL_Z, 0.0), 
 ]
-
 # Gait Setting (Biped Walk)
 GAIT_HZ = 1.0
-GAIT_DUTY = 0.60
+GAIT_DUTY = 0.68
 GAIT_T = 1.0 / GAIT_HZ
 
 # Trajectory Reference Setting (defaults)
@@ -78,10 +80,10 @@ STEPS_PER_MPC = max(1, int(CTRL_HZ // MPC_HZ))
 
 # TEMPORARY GOD MODE FOR DEBUGGING ONLY
 SAFETY = 1.0
-HIP_LIM = 300.0       # Was 88.0
-HIP_ROLL_LIM = 300.0  # Was 139.0
-KNEE_LIM = 300.0      # Was 139.0
-ANKLE_LIM = 100.0     # Was 50.0
+HIP_LIM = 120.0     
+HIP_ROLL_LIM = 120.0
+KNEE_LIM = 120.0      
+ANKLE_LIM = 120.0     
 
 
 TAU_LIM = SAFETY * np.array([
@@ -114,7 +116,7 @@ tau_raw = np.zeros((12, CTRL_STEPS))
 tau_cmd = np.zeros((12, CTRL_STEPS))
 
 time_log_ctrl_s = np.zeros(CTRL_STEPS)
-q_log_ctrl = np.zeros((CTRL_STEPS, 50)) # 50-DoF array for G1 with hands
+q_log_ctrl = np.zeros((CTRL_STEPS, 50)) 
 tau_log_ctrl_Nm = np.zeros((CTRL_STEPS, 12))
 
 @dataclass
@@ -245,23 +247,29 @@ with mjv.launch_passive(mujoco_g1.model, mujoco_g1.data) as viewer:
         # Apply held torques at every SIM step
         mj.mj_step1(mujoco_g1.model, mujoco_g1.data)
       
-        # l_shoulder_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "left_shoulder_pitch_joint")
-        # r_shoulder_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "right_shoulder_pitch_joint")
-        
-        # arm_amplitude = 0.4 if x_vel_des_body > 0.1 else 0.0 
-        
-        # Add a phase offset to align the arms with the opposite legs.
-        # Note: Depending on whether your gait.py starts on the Left or Right foot at t=0,
-        # you might need to change this to np.pi/2 or 0.0 to get it perfectly synced!
-        PHASE_OFFSET = np.pi  
-        
-        # Calculate the synchronized swing
-        # arm_swing = arm_amplitude * np.sin(2 * np.pi * GAIT_HZ * time_now_s + PHASE_OFFSET)
-        
-        # # In the G1, opposite arms must swing in opposite directions
-        # mujoco_g1.data.ctrl[l_shoulder_id] = arm_swing
-        # mujoco_g1.data.ctrl[r_shoulder_id] = -arm_swing
         # ------------------------------------------------
+        # UPPER BODY POSTURE CONTROL
+        # ------------------------------------------------
+        # The XML uses <position> actuators for the upper body. 
+        # We must actively command them to 0.0 so they match Pinocchio's CoM assumption.
+        
+        # 1. Keep the waist straight
+        waist_yaw_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "waist_yaw_joint")
+        waist_roll_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "waist_roll_joint")
+        waist_pitch_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "waist_pitch_joint")
+        
+        if waist_yaw_id != -1: mujoco_g1.data.ctrl[waist_yaw_id] = 0.0
+        if waist_roll_id != -1: mujoco_g1.data.ctrl[waist_roll_id] = 0.0
+        if waist_pitch_id != -1: mujoco_g1.data.ctrl[waist_pitch_id] = 0.0
+
+        # 2. Keep the arms down by the side 
+        l_shoulder_pitch_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "left_shoulder_pitch_joint")
+        r_shoulder_pitch_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "right_shoulder_pitch_joint")
+        
+        if l_shoulder_pitch_id != -1: mujoco_g1.data.ctrl[l_shoulder_pitch_id] = 0.15 
+        if r_shoulder_pitch_id != -1: mujoco_g1.data.ctrl[r_shoulder_pitch_id] = 0.15
+        # ------------------------------------------------
+
         mujoco_g1.set_joint_torque(tau_hold)
         mj.mj_step2(mujoco_g1.model, mujoco_g1.data)
 
@@ -289,3 +297,23 @@ t_vec = np.arange(ctrl_i) * CTRL_DT
 plot_swing_foot_traj(t_vec, foot_traj.pos_now, foot_traj.pos_des, foot_traj.vel_now, foot_traj.vel_des, block=False)
 plot_mpc_result(t_vec, mpc_force_world, tau_cmd, x_vec, block=False)
 plot_solve_time(mpc_solve_time_ms, mpc_update_time_ms, MPC_DT, MPC_HZ, block=True)
+
+left_foot_x = foot_traj.pos_now[0, :]  # Index 0 is Left X
+right_foot_x = foot_traj.pos_now[6, :] # Index 6 is Right X
+com_x = x_vec[0, :]                    # CoM X
+
+fig, ax = plt.subplots(figsize=(10, 5))
+    
+# Plot the forward progression
+ax.plot(t_vec, left_foot_x, label='Left Foot X', color='blue', linewidth=2)
+ax.plot(t_vec, right_foot_x, label='Right Foot X', color='orange', linewidth=2)
+ax.plot(t_vec, com_x, label='CoM X', color='green', linestyle='--', linewidth=2)
+    
+ax.set_title('Foot Forward Progression (Step Length Analysis)')
+ax.set_xlabel('Time (s)')
+ax.set_ylabel('World X Position (m)')
+ax.grid(True)
+ax.legend(loc='upper left')
+    
+plt.tight_layout()
+plt.show()

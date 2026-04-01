@@ -52,6 +52,15 @@ class MuJoCo_G1_Model:
         self.data.qpos[7:] = q_pin[7:]   # All joint angles
         
         mj.mj_forward(self.model, self.data)
+    def set_arm_posture(self):
+        # Names from the Unitree G1 URDF
+        l_shoulder_id = mj.mj_name2id(self.model, mj.mjtObj.mjOBJ_ACTUATOR, "left_shoulder_pitch_joint")
+        r_shoulder_id = mj.mj_name2id(self.model, mj.mjtObj.mjOBJ_ACTUATOR, "right_shoulder_pitch_joint")
+        
+        # 0.0 is usually 'straight down' depending on your XML/URDF
+        # If 0.0 is still 90 degrees, try 0.5 or -0.5
+        self.data.ctrl[l_shoulder_id] = 0.0
+        self.data.ctrl[r_shoulder_id] = 0.0
 
     def set_joint_torque(self, torque: np.ndarray):
         """
@@ -94,7 +103,8 @@ class MuJoCo_G1_Model:
             g1.current_config.right_leg_vel[i]   = mujoco_dq[self.qvel_adrs[i+6]]
 
         # 5. Trigger the Pinocchio forward kinematics update
-        g1.update_model()
+        q, dq = g1.get_full_q_dq()
+        g1.update_model(q, dq)
 
     def replay_simulation(self, time_log_s, q_log, tau_log_Nm, RENDER_DT, REALTIME_FACTOR):
         model = self.model
