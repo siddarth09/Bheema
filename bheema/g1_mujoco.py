@@ -46,7 +46,8 @@ class MuJoCo_G1_Model:
         """Forces the MuJoCo simulation to a specific Pinocchio state (Useful for resets)"""
         # MuJoCo qpos: [px, py, pz, qw, qx, qy, qz, j1...j29]
         # Pinocchio q: [px, py, pz, qx, qy, qz, qw, j1...j29]
-        self.data.qpos[0:3] = q_pin[0:3]
+        BODY_OFFSET = np.array([0.0, 0.0, 0.793])
+        self.data.qpos[0:3] = q_pin[0:3] + BODY_OFFSET
         self.data.qpos[3] = q_pin[6]     # qw
         self.data.qpos[4:7] = q_pin[3:6] # qx, qy, qz
         self.data.qpos[7:] = q_pin[7:]   # All joint angles
@@ -88,7 +89,8 @@ class MuJoCo_G1_Model:
         v_body = R.T @ v_world
 
         # 3. Update the simplified ConfigurationState inside the PinG1Model
-        g1.current_config.base_pos = mujoco_q[0:3]
+        BODY_OFFSET = np.array([0.0, 0.0, 0.793])
+        g1.current_config.base_pos = mujoco_q[0:3] - BODY_OFFSET
         g1.current_config.base_quad = np.array([qx, qy, qz, qw]) # Pinocchio format
         g1.current_config.base_vel = v_body
         g1.current_config.base_ang_vel = w_body

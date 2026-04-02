@@ -22,7 +22,7 @@ from bheema.plotter import plot_mpc_result, plot_swing_foot_traj, plot_solve_tim
 # Simulation Setting
 INITIAL_X_POS = -10
 INITIAL_Y_POS = 0
-RUN_SIM_LENGTH_S = 10.0
+RUN_SIM_LENGTH_S = 20.0
 
 RENDER_HZ = 120.0
 RENDER_DT = 1.0 / RENDER_HZ
@@ -38,18 +38,15 @@ class BodyCmdPhase:
     yaw_rate: float
 
 
-NOMINAL_Z = 0.74
+NOMINAL_Z = 0.66
 
 CMD_SCHEDULE = [
-    # Phase 1 (t=0s to 3s): Stand perfectly still (x_vel = 0.0) to settle physics
-    BodyCmdPhase(0.0, 3.0, 0.5, 0.0, NOMINAL_Z, 0.0), 
-    
-    # Phase 2 (t=3s to 10s): Start walking forward at 0.5 m/s
-    BodyCmdPhase(3.0, 10.0, 0.5, 0.0, NOMINAL_Z, 0.0), 
+    BodyCmdPhase(0.0, 5.0, 0.0, 0.0, NOMINAL_Z, 0.0),    # Stand for 5s
+    BodyCmdPhase(5.0, 30.0, 0.8, 0.0, NOMINAL_Z, 0.0),    # Slow walk 0.3 m/s
 ]
 # Gait Setting (Biped Walk)
-GAIT_HZ = 1.0
-GAIT_DUTY = 0.68
+GAIT_HZ = 1.2
+GAIT_DUTY = 0.75
 GAIT_T = 1.0 / GAIT_HZ
 
 # Trajectory Reference Setting (defaults)
@@ -86,9 +83,9 @@ KNEE_LIM = 120.0
 ANKLE_LIM = 120.0     
 
 
-TAU_LIM = SAFETY * np.array([
-    HIP_LIM, HIP_ROLL_LIM, HIP_LIM, KNEE_LIM, ANKLE_LIM, ANKLE_LIM, # Left Leg
-    HIP_LIM, HIP_ROLL_LIM, HIP_LIM, KNEE_LIM, ANKLE_LIM, ANKLE_LIM  # Right Leg
+TAU_LIM = np.array([
+    88.0, 139.0, 88.0, 139.0, 50.0, 50.0,   # Left: hip_p, hip_r, hip_y, knee, ankle_p, ankle_r
+    88.0, 139.0, 88.0, 139.0, 50.0, 50.0     # Right
 ])
 
 # Biped Leg Slices
@@ -109,7 +106,8 @@ def get_body_cmd(t: float):
 # --------------------------------------------------------------------------------
 # Storage Variables (CONTROL-rate logs for plots)
 # --------------------------------------------------------------------------------
-
+com_z_log = []
+ref_z_log = []
 x_vec = np.zeros((12, CTRL_STEPS))
 mpc_force_world = np.zeros((12, CTRL_STEPS))
 tau_raw = np.zeros((12, CTRL_STEPS))
@@ -178,6 +176,16 @@ with mjv.launch_passive(mujoco_g1.model, mujoco_g1.data) as viewer:
     viewer.cam.azimuth = 90
     viewer.opt.flags[mj.mjtVisFlag.mjVIS_CONTACTPOINT] = True
 
+
+    for i in range(12):
+        aid = mujoco_g1.actuator_ids[i]
+        name = mujoco_g1.leg_joint_names[i]
+        gainprm = mujoco_g1.model.actuator_gainprm[aid]
+        biasprm = mujoco_g1.model.actuator_biasprm[aid]
+        biastype = mujoco_g1.model.actuator_biastype[aid]
+        gaintype = mujoco_g1.model.actuator_gaintype[aid]
+        print(f"{name}: gain={gainprm[0]:.1f}, biastype={biastype}, gaintype={gaintype}, biasprm={biasprm[:3]}")
+
     for k in range(SIM_STEPS):
         # Break if the user closes the viewer window early
         if not viewer.is_running():
@@ -205,7 +213,9 @@ with mjv.launch_passive(mujoco_g1.model, mujoco_g1.data) as viewer:
                     x_vel_des_body, y_vel_des_body, z_pos_des_body, yaw_rate_des_body,
                     time_step=MPC_DT,
                 )
-
+                com_z_log.append(g1.compute_com_x_vec().flatten()[2])  # Actual CoM z
+                ref_z_log.append(traj.compute_x_ref_vec()[2, 0])        # Reference z
+                
                 sol = mpc.solve_QP(g1, traj, False)
                 mpc_solve_time_ms.append(mpc.solve_time)
                 mpc_update_time_ms.append(mpc.update_time)
@@ -214,12 +224,58 @@ with mjv.launch_passive(mujoco_g1.model, mujoco_g1.data) as viewer:
                 w_opt = sol["x"].full().flatten()
                 U_opt = w_opt[12 * (N) :].reshape((12, N), order="F")
 
+                # if ctrl_i == 0:  # Print only the first MPC call
+                #     print(f"Initial CoM state: {g1.compute_com_x_vec().flatten()}")
+                #     print(f"Left foot lever:  {traj.r_l_foot_world[:, 0]}")
+                #     print(f"Right foot lever: {traj.r_r_foot_world[:, 0]}")
+                #     print(f"Contact table[0]: {traj.contact_table[:, 0]}")
+                #     print(f"x_ref[0]: {traj.compute_x_ref_vec()[:, 0]}")
+                #     g, C, M = g1.compute_dynamics_terms()
+                #     print(f"Gravity term left leg [6:12]: {g[6:12]}")
+                #     print(f"Gravity term right leg [12:18]: {g[12:18]}")
+                #     print(f"MPC wrench left: {U_opt[:6, 0]}")
+                #     print(f"MPC wrench right: {U_opt[6:, 0]}")
+                #     print(f"Pinocchio total mass: {sum([g1.model.inertias[i].mass for i in range(g1.model.njoints)]):.2f} kg")
+                #     print(f"Pinocchio CoM: {g1.pos_com_world}")
+                #     stats = mpc.solver.stats()
+                #     print(f"QP status: {stats.get('return_status')}")
+                #     print(f"QP cost: {sol['cost']}")
+                #     w = sol['x'].full().flatten()
+                #     print(f"First 5 state vars: {w[0:5]}")
+                #     print(f"First force vars (should be nonzero): {w[12*N:12*N+12]}")
+
+
+                #     J_L = g1.compute_leg_Jacobian_world("LEFT")
+                #     print(f"Left leg Jacobian:\n{np.array2string(J_L, precision=4, suppress_small=True)}")
+                #     foot_L, _ = g1.get_foot_placement_in_world()
+                #     print(f"Pinocchio left foot world pos: {foot_L}")
+
+
+
+                #     mj.mj_forward(mujoco_g1.model, mujoco_g1.data)
+                #     qfrc_bias = mujoco_g1.data.qfrc_bias.copy()
+                #     print(f"MuJoCo qfrc_bias left leg:  {qfrc_bias[6:12]}")
+                #     print(f"MuJoCo qfrc_bias right leg: {qfrc_bias[12:18]}")
+                #     print(f"Pinocchio g left leg:       {g[6:12]}")
+
+
+                   
+
             # Extract first 6D Wrench for both legs from MPC
             mpc_force_world[:, ctrl_i] = U_opt[:, 0]
+            if x_vel_des_body == 0.0 and y_vel_des_body == 0.0:
+                override_mask = np.array([1, 1])
+            else:
+                override_mask = None
 
-            # Compute joint torques for LEFT leg
+            if x_vel_des_body == 0.0 and y_vel_des_body == 0.0:
+                gait_time = 0.0  
+            else:
+                gait_time = time_now_s
+
+
             LEFT = leg_controller.compute_leg_torque(
-                "LEFT", g1, gait, mpc_force_world[LEG_SLICE["LEFT"], ctrl_i], time_now_s
+                "LEFT", g1, gait, mpc_force_world[LEG_SLICE["LEFT"], ctrl_i], gait_time
             )
             tau_raw[LEG_SLICE["LEFT"], ctrl_i] = LEFT.tau
             foot_traj.pos_des[LEG_SLICE["LEFT"], ctrl_i] = np.pad(LEFT.pos_des, (0,3))
@@ -229,15 +285,15 @@ with mjv.launch_passive(mujoco_g1.model, mujoco_g1.data) as viewer:
 
             # Compute joint torques for RIGHT leg
             RIGHT = leg_controller.compute_leg_torque(
-                "RIGHT", g1, gait, mpc_force_world[LEG_SLICE["RIGHT"], ctrl_i], time_now_s
+                "RIGHT", g1, gait, mpc_force_world[LEG_SLICE["RIGHT"], ctrl_i], gait_time
             )
+            
             tau_raw[LEG_SLICE["RIGHT"], ctrl_i] = RIGHT.tau
             foot_traj.pos_des[LEG_SLICE["RIGHT"], ctrl_i] = np.pad(RIGHT.pos_des, (0,3))
             foot_traj.pos_now[LEG_SLICE["RIGHT"], ctrl_i] = np.pad(RIGHT.pos_now, (0,3))
             foot_traj.vel_des[LEG_SLICE["RIGHT"], ctrl_i] = np.pad(RIGHT.vel_des, (0,3))
             foot_traj.vel_now[LEG_SLICE["RIGHT"], ctrl_i] = np.pad(RIGHT.vel_now, (0,3))
-
-            # Saturate + hold
+            
             tau_cmd[:, ctrl_i] = np.clip(tau_raw[:, ctrl_i], -TAU_LIM, TAU_LIM)
             tau_hold = tau_cmd[:, ctrl_i].copy()
 
@@ -245,34 +301,26 @@ with mjv.launch_passive(mujoco_g1.model, mujoco_g1.data) as viewer:
             ctrl_i += 1
 
         # Apply held torques at every SIM step
-        mj.mj_step1(mujoco_g1.model, mujoco_g1.data)
+        # mj.mj_step1(mujoco_g1.model, mujoco_g1.data)
       
-        # ------------------------------------------------
-        # UPPER BODY POSTURE CONTROL
-        # ------------------------------------------------
-        # The XML uses <position> actuators for the upper body. 
-        # We must actively command them to 0.0 so they match Pinocchio's CoM assumption.
-        
-        # 1. Keep the waist straight
+        mujoco_g1.set_joint_torque(tau_hold)
+
+        # Upper body posture control
         waist_yaw_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "waist_yaw_joint")
         waist_roll_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "waist_roll_joint")
         waist_pitch_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "waist_pitch_joint")
-        
         if waist_yaw_id != -1: mujoco_g1.data.ctrl[waist_yaw_id] = 0.0
         if waist_roll_id != -1: mujoco_g1.data.ctrl[waist_roll_id] = 0.0
         if waist_pitch_id != -1: mujoco_g1.data.ctrl[waist_pitch_id] = 0.0
 
-        # 2. Keep the arms down by the side 
         l_shoulder_pitch_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "left_shoulder_pitch_joint")
         r_shoulder_pitch_id = mj.mj_name2id(mujoco_g1.model, mj.mjtObj.mjOBJ_ACTUATOR, "right_shoulder_pitch_joint")
-        
-        if l_shoulder_pitch_id != -1: mujoco_g1.data.ctrl[l_shoulder_pitch_id] = 0.15 
+        if l_shoulder_pitch_id != -1: mujoco_g1.data.ctrl[l_shoulder_pitch_id] = 0.15
         if r_shoulder_pitch_id != -1: mujoco_g1.data.ctrl[r_shoulder_pitch_id] = 0.15
-        # ------------------------------------------------
 
-        mujoco_g1.set_joint_torque(tau_hold)
-        mj.mj_step2(mujoco_g1.model, mujoco_g1.data)
-
+        # Single physics step with all controls applied
+        mj.mj_step(mujoco_g1.model, mujoco_g1.data)
+        
         # Render-rate sync and real-time pacing
         if k % int(SIM_HZ / RENDER_HZ) == 0:
             viewer.sync()
@@ -315,5 +363,17 @@ ax.set_ylabel('World X Position (m)')
 ax.grid(True)
 ax.legend(loc='upper left')
     
+plt.tight_layout()
+plt.show()
+
+
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.plot(com_z_log, label='Actual CoM Z')
+ax.plot(ref_z_log, label='Reference Z', linestyle='--')
+ax.set_title('CoM Z vs Reference Z')
+ax.set_ylabel('Height (m)')
+ax.set_xlabel('MPC step')
+ax.legend()
+ax.grid(True)
 plt.tight_layout()
 plt.show()

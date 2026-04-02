@@ -13,7 +13,7 @@ XML_PATH = "/home/sid/projects25/src/bheema/unitree_g1/g1_with_hands.xml"
 class ConfigurationState:
     def __init__(self):
         # 1. Base Pose (Lowered to 0.60m for knee leverage)
-        self.base_pos = np.array([0.0, 0.0, 0.74])
+        self.base_pos = np.array([0.0, 0.0, 0.74 - 0.793])
         self.base_quad = np.array([0.0, 0.0, 0.0, 1.0])
 
         # 2. Leg joint angles [hip_p, hip_r, hip_y, knee, ankle_p, ankle_r]

@@ -128,9 +128,19 @@ class LegController():
             tau_cmd = J_foot_world.T @ force_6d + (C @ dq + g)[joint_slice]
 
         else:  # Stance phase
-            # Exact Go2 Logic: J.T @ -ContactForce
-            tau_cmd = J_foot_world.T @ -contact_wrench
-
+            # Feedforward from MPC
+            tau_ff = J_foot_world.T @ -contact_wrench + (C @ dq + g)[joint_slice]
+            
+            # Joint PD feedback to resist drift
+            q_leg = g1.current_config.left_leg_angle if leg_idx == 0 else g1.current_config.right_leg_angle
+            dq_leg = g1.current_config.left_leg_vel if leg_idx == 0 else g1.current_config.right_leg_vel
+            q_des = np.array([-0.3, 0.0, 0.0, 0.6, -0.3, 0.0])
+            
+            Kp_stance = 150.0
+            Kd_stance = 20.0
+            tau_pd = Kp_stance * (q_des - q_leg) - Kd_stance * dq_leg
+            
+            tau_cmd = tau_ff + tau_pd
         # Update mask memory
         self.last_mask[leg_idx] = current_mask[leg_idx]
 

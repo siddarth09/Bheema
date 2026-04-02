@@ -13,9 +13,9 @@ class ComTraj:
         # Seed first trajectory from current state
         x_vec = g1.compute_com_x_vec().reshape(-1)
         self.pos_des_world[0:2] = x_vec[0:2]
-        self.pos_des_world[2] = 0.60 # Standard G1 nominal height
+        self.pos_des_world[2] = g1.pos_com_world[2]
         
-        self.N = 16 
+        self.N = 26 
         self.nx = 12
         self.nu = 12
 
@@ -115,8 +115,8 @@ class ComTraj:
             self.vel_traj_world[1, i] = vel_desired_world[1] + vy_sway # Add sway vel to commanded vel
             self.vel_traj_world[2, i] = 0.0
 
-        # Linear velocity in world
-        self.vel_traj_world[:, :] = vel_desired_world.reshape(3, 1)
+        # # Linear velocity in world
+        # self.vel_traj_world[:, :] = vel_desired_world.reshape(3, 1)
 
         # RPY in world
         self.rpy_traj_world[0, :] = 0.0

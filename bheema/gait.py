@@ -7,8 +7,8 @@ from numpy import cos, sin
 # --------------------------------------------------------------------------------
 
 PHASE_OFFSET = np.array([0.0, 0.5]).reshape(2)    
-HEIGHT_SWING = 0.16
-NOMINAL_STANCE_WIDTH = 0.29 
+HEIGHT_SWING = 0.18
+NOMINAL_STANCE_WIDTH = 0.25
 MIN_FOOT_GAP = 0.15
 
 class Gait():

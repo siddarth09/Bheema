@@ -11,15 +11,15 @@ from .g1_config import PinG1Model
 # --------------------------------------------------------------------------------
 # State Vector: [x, y, z, roll, pitch, yaw, vx, vy, vz, wx, wy, wz]
 COST_MATRIX_Q = np.diag([
-    100.0,   2000.0,  2000.0,  
-    1000.0, 3000.0, 15000.0,  
-    100.0,  2000.0,  500.0,   
-    5000.0, 5000.0, 5000.0   
+    500.0,  1000.0, 3000.0,    # x, y, z position
+    3000.0, 5000.0, 400.0,    # roll, pitch, yaw  
+    500.0,  1000.0,  200.0,    # vx, vy, vz
+    100.0,   100.0,  100.0     # wx, wy, wz
 ])
-# Control Vector: [fx, fy, fz, tx, ty, tz]
+
 COST_MATRIX_R = np.diag([
-    0.1, 1.0, 0.1,  1.0, 1.0, 1.0,  
-    0.1, 1.0, 0.1,  1.0, 1.0, 1.0   
+    1.0, 1.0, 1e-2,  10.0, 10.0, 10.0,   # Left:  Fx, Fy, Fz, Tx, Ty, Tz
+    1.0, 1.0, 1e-2,  10.0, 10.0, 10.0    # Right: Fx, Fy, Fz, Tx, Ty, Tz
 ])
 
 MU = 0.8            # Linear friction coefficient
@@ -122,23 +122,23 @@ class CentroidalMPC:
         # 1. STATE CONSTRAINTS (The first N*12 variables)
         # ---------------------------------------------------------
         # State block layout: [x, y, z, roll, pitch, yaw, vx, vy, vz, wx, wy, wz]
-        for i in range(N):
-            roll_idx  = i * 12 + 3
-            pitch_idx = i * 12 + 4
-            yaw_idx   = i * 12 + 5
+        # for i in range(N):
+        #     roll_idx  = i * 12 + 3
+        #     pitch_idx = i * 12 + 4
+        #     yaw_idx   = i * 12 + 5
             
-            # Lock Roll and Pitch to +/- 15 degrees (0.26 rad)
-            # This prevents the torso from tipping over and causing Gimbal Lock
-            lbx_np[roll_idx, 0] = -0.26
-            ubx_np[roll_idx, 0] =  0.26
-            lbx_np[pitch_idx, 0] = -0.26
-            ubx_np[pitch_idx, 0] =  0.26
+        #     # Lock Roll and Pitch to +/- 15 degrees (0.26 rad)
+        #     # This prevents the torso from tipping over and causing Gimbal Lock
+        #     lbx_np[roll_idx, 0] = -0.26
+        #     ubx_np[roll_idx, 0] =  0.26
+        #     lbx_np[pitch_idx, 0] = -0.26
+        #     ubx_np[pitch_idx, 0] =  0.26
 
-            # Lock Yaw to +/- 30 degrees (0.52 rad)
-            # This prevents the 180-degree "Helicopter" spin
-            lbx_np[yaw_idx, 0] = -0.52
-            ubx_np[yaw_idx, 0] =  0.52
-
+        #     # Lock Yaw to +/- 30 degrees (0.52 rad)
+        #     # This prevents the 180-degree "Helicopter" spin
+        #     lbx_np[yaw_idx, 0] = -0.52
+        #     ubx_np[yaw_idx, 0] =  0.52
+        
         # ---------------------------------------------------------
         # 2. CONTROL CONSTRAINTS (The variables after N*12)
         # ---------------------------------------------------------
@@ -173,6 +173,25 @@ class CentroidalMPC:
                 fz_R_idx = force_idx[8, i]
                 lbx_np[fz_R_idx, 0] = fz_min
                 ubx_np[fz_R_idx, 0] = fz_max # Stop the "Nuclear Spikes"
+
+
+        # --- C) Stance Legs: Cap Horizontal Forces (Fx, Fy) ---
+        for i in range(N):
+            if contact[0, i]:  # Left stance
+                fx_L_idx = force_idx[0, i]
+                fy_L_idx = force_idx[1, i]
+                lbx_np[fx_L_idx, 0] = -400.0
+                ubx_np[fx_L_idx, 0] =  400.0
+                lbx_np[fy_L_idx, 0] = -400.0
+                ubx_np[fy_L_idx, 0] =  400.0
+            if contact[1, i]:  # Right stance
+                fx_R_idx = force_idx[6, i]
+                fy_R_idx = force_idx[7, i]
+                lbx_np[fx_R_idx, 0] = -400.0
+                ubx_np[fx_R_idx, 0] =  400.0
+                lbx_np[fy_R_idx, 0] = -400.0
+                ubx_np[fy_R_idx, 0] =  400.0
+
 
         return ca.DM(lbx_np), ca.DM(ubx_np)
     
