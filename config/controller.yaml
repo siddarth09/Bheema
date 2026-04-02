@@ -6,10 +6,13 @@ controller_manager:
       type: joint_state_broadcaster/JointStateBroadcaster
 
     g1_leg_controller:
-      type: position_controllers/JointGroupPositionController
+      type: effort_controllers/JointGroupEffortController
 
     g1_waist_controller:
       type: position_controllers/JointGroupPositionController
+    
+    imu_sensor_broadcaster:
+      type: imu_sensor_broadcaster/IMUSensorBroadcaster
 
 
 g1_leg_controller:
@@ -32,7 +35,7 @@ g1_leg_controller:
       - right_ankle_roll_joint
 
     command_interfaces:
-      - position
+      - effort
 
     state_interfaces:
       - position
@@ -53,3 +56,12 @@ g1_waist_controller:
     state_interfaces:
       - position
       - velocity
+
+
+imu_sensor_broadcaster:
+  ros__parameters:
+    sensor_name: "imu_sensor"
+    frame_id: "imu_sensor"  
+    static_covariance_orientation: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    static_covariance_angular_velocity: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    static_covariance_linear_acceleration: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

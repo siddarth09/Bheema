@@ -6,7 +6,7 @@
   <default>
     <default class="g1">
       <site rgba="1 0 0 1" size="0.01" group="5"/>
-      <joint armature="0.01" frictionloss="0.3"/>
+      <joint armature="0.1" frictionloss="0.3" damping="0.5"/>
       <position kp="500" dampratio="1" inheritrange="1"/>
       <default class="visual">
         <geom group="2" type="mesh" contype="0" conaffinity="0" density="0" material="metal"/>
@@ -14,7 +14,7 @@
       <default class="collision">
         <geom group="3" type="mesh"/>
         <default class="foot">
-          <geom type="sphere" size="0.005" priority="1" friction="0.6" condim="3"/>
+          <geom type="sphere" size="0.005" priority="1" friction="1.0" condim="6"/>
         </default>
       </default>
     </default>
@@ -83,7 +83,7 @@
       <geom class="visual" material="black" mesh="pelvis"/>
       <geom class="visual" mesh="pelvis_contour_link"/>
       <geom class="collision" mesh="pelvis_contour_link"/>
-      <site name="imu_in_pelvis" size="0.01" pos="0.04525 0 -0.08339"/>
+      <site name="imu_in_pelvis" size="0.01" pos="0.0 0.0 0.0"/>
       <body name="left_hip_pitch_link" pos="0 0.064452 -0.1027">
         <inertial pos="0.002741 0.047791 -0.02606" quat="0.954862 0.293964 0.0302556 0.030122" mass="1.35"
           diaginertia="0.00181517 0.00153422 0.00116212"/>
@@ -434,18 +434,19 @@
   </worldbody>
 
   <actuator>
-    <position class="g1" name="left_hip_pitch_joint" joint="left_hip_pitch_joint"/>
-    <position class="g1" name="left_hip_roll_joint" joint="left_hip_roll_joint"/>
-    <position class="g1" name="left_hip_yaw_joint" joint="left_hip_yaw_joint"/>
-    <position class="g1" name="left_knee_joint" joint="left_knee_joint"/>
-    <position class="g1" name="left_ankle_pitch_joint" joint="left_ankle_pitch_joint"/>
-    <position class="g1" name="left_ankle_roll_joint" joint="left_ankle_roll_joint"/>
-    <position class="g1" name="right_hip_pitch_joint" joint="right_hip_pitch_joint"/>
-    <position class="g1" name="right_hip_roll_joint" joint="right_hip_roll_joint"/>
-    <position class="g1" name="right_hip_yaw_joint" joint="right_hip_yaw_joint"/>
-    <position class="g1" name="right_knee_joint" joint="right_knee_joint"/>
-    <position class="g1" name="right_ankle_pitch_joint" joint="right_ankle_pitch_joint"/>
-    <position class="g1" name="right_ankle_roll_joint" joint="right_ankle_roll_joint"/>
+    <motor class="g1" name="left_hip_pitch_joint" joint="left_hip_pitch_joint" ctrlrange="-88 88" ctrllimited="true"/>
+    <motor class="g1" name="left_hip_roll_joint" joint="left_hip_roll_joint" ctrlrange="-139 139" ctrllimited="true"/>
+    <motor class="g1" name="left_hip_yaw_joint" joint="left_hip_yaw_joint" ctrlrange="-88 88" ctrllimited="true"/>
+    <motor class="g1" name="left_knee_joint" joint="left_knee_joint" ctrlrange="-139 139" ctrllimited="true"/>
+    <motor class="g1" name="left_ankle_pitch_joint" joint="left_ankle_pitch_joint" ctrlrange="-50 50" ctrllimited="true"/>
+    <motor class="g1" name="left_ankle_roll_joint" joint="left_ankle_roll_joint" ctrlrange="-50 50" ctrllimited="true"/>
+
+    <motor class="g1" name="right_hip_pitch_joint" joint="right_hip_pitch_joint" ctrlrange="-88 88" ctrllimited="true"/>
+    <motor class="g1" name="right_hip_roll_joint" joint="right_hip_roll_joint" ctrlrange="-139 139" ctrllimited="true"/>
+    <motor class="g1" name="right_hip_yaw_joint" joint="right_hip_yaw_joint" ctrlrange="-88 88" ctrllimited="true"/>
+    <motor class="g1" name="right_knee_joint" joint="right_knee_joint" ctrlrange="-139 139" ctrllimited="true"/>
+    <motor class="g1" name="right_ankle_pitch_joint" joint="right_ankle_pitch_joint" ctrlrange="-50 50" ctrllimited="true"/>
+    <motor class="g1" name="right_ankle_roll_joint" joint="right_ankle_roll_joint" ctrlrange="-50 50" ctrllimited="true"/>
 
     <position class="g1" name="waist_yaw_joint" joint="waist_yaw_joint"/>
     <position class="g1" name="waist_roll_joint" joint="waist_roll_joint"/>
@@ -492,10 +493,10 @@
   <keyframe>
     <key name="stand"
       qpos="
-      0 0 0.79
+      0 0 0.74
       1 0 0 0
-      0 0 0 0 0 0
-      0 0 0 0 0 0
+      -0.3 0 0 0.6 -0.3 0
+      -0.3 0 0 0.6 -0.3 0
       0 0 0
       0.2 0.2 0 1.28 0 0 0
       0 1.05 0 0 0 0 0

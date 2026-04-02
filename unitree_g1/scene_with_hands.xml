@@ -17,6 +17,10 @@
   </asset>
 
   <worldbody>
-    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+     <geom name="floor" size="0 0 .05" type="plane" material="groundplane" 
+      friction="1.5 0.1 0.1"/>
+    <site name="target_com" type="sphere" size="0.05" rgba="0 1 0 0.5"/>
+    <site name="target_foot_l" type="sphere" size="0.03" rgba="1 0 0 0.5"/>
+    <site name="target_foot_r" type="sphere" size="0.03" rgba="0 0 1 0.5"/>
   </worldbody>
 </mujoco>

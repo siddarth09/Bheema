@@ -361,19 +361,19 @@
   </worldbody>
 
   <actuator>
-    <position class="hip_pitch" name="left_hip_pitch_joint" joint="left_hip_pitch_joint"/>
-    <position class="hip_roll" name="left_hip_roll_joint" joint="left_hip_roll_joint"/>
-    <position class="hip_yaw" name="left_hip_yaw_joint" joint="left_hip_yaw_joint"/>
-    <position class="knee" name="left_knee_joint" joint="left_knee_joint"/>
-    <position class="ankle_pitch" name="left_ankle_pitch_joint" joint="left_ankle_pitch_joint"/>
-    <position class="ankle_roll" name="left_ankle_roll_joint" joint="left_ankle_roll_joint"/>
+    <motor class="hip_pitch" name="left_hip_pitch_joint" joint="left_hip_pitch_joint"/>
+    <motor class="hip_roll" name="left_hip_roll_joint" joint="left_hip_roll_joint"/>
+    <motor class="hip_yaw" name="left_hip_yaw_joint" joint="left_hip_yaw_joint"/>
+    <motor class="knee" name="left_knee_joint" joint="left_knee_joint"/>
+    <motor class="ankle_pitch" name="left_ankle_pitch_joint" joint="left_ankle_pitch_joint"/>
+    <motor class="ankle_roll" name="left_ankle_roll_joint" joint="left_ankle_roll_joint"/>
 
-    <position class="hip_pitch" name="right_hip_pitch_joint" joint="right_hip_pitch_joint"/>
-    <position class="hip_roll" name="right_hip_roll_joint" joint="right_hip_roll_joint"/>
-    <position class="hip_yaw" name="right_hip_yaw_joint" joint="right_hip_yaw_joint"/>
-    <position class="knee" name="right_knee_joint" joint="right_knee_joint"/>
-    <position class="ankle_pitch" name="right_ankle_pitch_joint" joint="right_ankle_pitch_joint"/>
-    <position class="ankle_roll" name="right_ankle_roll_joint" joint="right_ankle_roll_joint"/>
+    <motor class="hip_pitch" name="right_hip_pitch_joint" joint="right_hip_pitch_joint"/>
+    <motor class="hip_roll" name="right_hip_roll_joint" joint="right_hip_roll_joint"/>
+    <motor class="hip_yaw" name="right_hip_yaw_joint" joint="right_hip_yaw_joint"/>
+    <motor class="knee" name="right_knee_joint" joint="right_knee_joint"/>
+    <motor class="ankle_pitch" name="right_ankle_pitch_joint" joint="right_ankle_pitch_joint"/>
+    <motor class="ankle_roll" name="right_ankle_roll_joint" joint="right_ankle_roll_joint"/>
 
     <position class="waist_yaw" name="waist_yaw_joint" joint="waist_yaw_joint"/>
     <position class="waist_roll" name="waist_roll_joint" joint="waist_roll_joint"/>

@@ -1,13 +1,5 @@
 <?xml version="1.0" ?>
 <robot name="converted_robot">
-   <!--generated with mjcf_urdf_simple_converter (https://github.com/Yasu31/mjcf_urdf_simple_converter)-->
-   <link name="world">
-      <inertial>
-         <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-         <mass value="0.0"/>
-         <inertia ixx="0.0" iyy="0.0" izz="0.0" ixy="0" ixz="0" iyz="0"/>
-      </inertial>
-   </link>
    <link name="pelvis">
       <inertial>
          <origin xyz="0.0 0.0 -0.07605" rpy="0.0 -0.0007982959576051663 0.0"/>
@@ -33,23 +25,7 @@
          </geometry>
       </visual>
    </link>
-   <link name="floating_base_joint_jointbody">
-      <inertial>
-         <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-         <mass value="0.001"/>
-         <inertia ixx="1e-09" iyy="1e-09" izz="1e-09" ixy="0" ixz="0" iyz="0"/>
-      </inertial>
-   </link>
-   <joint type="fixed" name="floating_base_joint">
-      <parent link="world"/>
-      <child link="floating_base_joint_jointbody"/>
-      <origin xyz="0.0 0.0 0.793" rpy="0.0 0.0 0.0"/>
-   </joint>
-   <joint type="fixed" name="floating_base_joint_offset">
-      <parent link="floating_base_joint_jointbody"/>
-      <child link="pelvis"/>
-      <origin xyz="-0.0 -0.0 -0.0" rpy="0.0 0.0 0.0"/>
-   </joint>
+   
    <link name="left_hip_pitch_link">
       <inertial>
          <origin xyz="0.002741 0.047791 -0.02606" rpy="0.5988174572601404 0.040081048741047454 0.07544498172237224"/>
@@ -1670,104 +1646,107 @@
 
 
    <ros2_control name="G1MujocoSystem" type="system">
-   <hardware>
-      <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
-      <param name="mujoco_model">/home/sid/projects25/src/bheema/unitree_g1/scene_with_hands.xml</param>
-      <param name="sim_speed_factor">1.0</param>
-   </hardware>
+      <hardware>
+         <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
+         <param name="mujoco_model">$(find bheema)/unitree_g1/scene_with_hands.xml</param>
+         <param name="override_start_position_file">$(find bheema)/config/start_positions.xml</param>
+         <param name="sim_speed_factor">1.0</param>
+      </hardware>
 
-   <!-- Legs -->
-   <joint name="left_hip_pitch_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
+      <joint name="left_hip_pitch_joint">
+         <command_interface name="effort"/> <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="left_hip_roll_joint">
+         <command_interface name="effort"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="left_hip_yaw_joint">
+         <command_interface name="effort"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="left_knee_joint">
+         <command_interface name="effort"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="left_ankle_pitch_joint">
+         <command_interface name="effort"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="left_ankle_roll_joint">
+         <command_interface name="effort"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
 
-   <joint name="left_hip_roll_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
+      <joint name="right_hip_pitch_joint">
+         <command_interface name="effort"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="right_hip_roll_joint">
+         <command_interface name="effort"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="right_hip_yaw_joint">
+         <command_interface name="effort"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="right_knee_joint">
+         <command_interface name="effort"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="right_ankle_pitch_joint">
+         <command_interface name="effort"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="right_ankle_roll_joint">
+         <command_interface name="effort"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
 
-   <joint name="left_hip_yaw_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
+      <joint name="waist_yaw_joint">
+         <command_interface name="position"/> 
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="waist_roll_joint">
+         <command_interface name="position"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
+      <joint name="waist_pitch_joint">
+         <command_interface name="position"/>
+         <state_interface name="position"/>
+         <state_interface name="velocity"/>
+      </joint>
 
-   <joint name="left_knee_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
+      <sensor name="imu_sensor">
+         <param name="mujoco_type">imu</param>
+         <param name="mujoco_sensor_name">imu_sensor</param>
+         <param name="orientation_mjcf_suffix">_quat</param>
+         <param name="angular_velocity_mjcf_suffix">_gyro</param>
+         <param name="linear_acceleration_mjcf_suffix">_accel</param>
+         <state_interface name="orientation.x"/>
+         <state_interface name="orientation.y"/>
+         <state_interface name="orientation.z"/>
+         <state_interface name="orientation.w"/>
+         <state_interface name="angular_velocity.x"/>
+         <state_interface name="angular_velocity.y"/>
+         <state_interface name="angular_velocity.z"/>
+         <state_interface name="linear_acceleration.x"/>
+         <state_interface name="linear_acceleration.y"/>
+         <state_interface name="linear_acceleration.z"/>
+      </sensor>
 
-   <joint name="left_ankle_pitch_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
-
-   <joint name="left_ankle_roll_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
-
-   <!-- Right leg -->
-   <joint name="right_hip_pitch_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
-
-   <joint name="right_hip_roll_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
-
-   <joint name="right_hip_yaw_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
-
-   <joint name="right_knee_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
-
-   <joint name="right_ankle_pitch_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
-
-   <joint name="right_ankle_roll_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
-
-   <!-- Waist -->
-   <joint name="waist_yaw_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
-
-   <joint name="waist_roll_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
-
-   <joint name="waist_pitch_joint">
-      <command_interface name="position"/>
-      <state_interface name="position"/>
-      <state_interface name="velocity"/>
-   </joint>
    </ros2_control>
-
 </robot>
