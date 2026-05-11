@@ -137,7 +137,7 @@ class LegController():
             q_des = np.array([-0.3, 0.0, 0.0, 0.6, -0.3, 0.0])
             
             Kp_stance = 150.0
-            Kd_stance = 20.0
+            Kd_stance = 30.0
             tau_pd = Kp_stance * (q_des - q_leg) - Kd_stance * dq_leg
             
             tau_cmd = tau_ff + tau_pd

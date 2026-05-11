@@ -4,6 +4,8 @@ A classical model-predictive control pipeline for bipedal humanoid walking — n
 
 https://github.com/user-attachments/assets/8cb457dd-af82-4a62-9796-869882d03797
 
+
+
 ---
 
 ## Why this exists

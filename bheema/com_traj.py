@@ -161,7 +161,7 @@ class ComTraj:
             ## Left Foot Logic
             if current_mask[0] != mask_previous[0] and current_mask[0] == 0:
                 # Takes off
-                pos_l_next_td_world = gait.compute_touchdown_world_for_traj_purpose_only(self.dummy_g1, "LEFT")
+                pos_l_next_td_world = gait.predict_nominal_touchdown(self.dummy_g1, "LEFT")
                 r_l_next_td_world = pos_l_next_td_world - p_base_traj_world
                 r_l_traj_world[:, i] = np.array([0, 0, 0])
 
@@ -176,7 +176,7 @@ class ComTraj:
             ## Right Foot Logic
             if current_mask[1] != mask_previous[1] and current_mask[1] == 0:
                 # Takes off
-                pos_r_next_td_world = gait.compute_touchdown_world_for_traj_purpose_only(self.dummy_g1, "RIGHT")
+                pos_r_next_td_world = gait.predict_nominal_touchdown(self.dummy_g1, "RIGHT")
                 r_r_next_td_world = pos_r_next_td_world - p_base_traj_world
                 r_r_traj_world[:, i] = np.array([0, 0, 0])
 
