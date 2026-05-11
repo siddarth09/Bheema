@@ -13,6 +13,11 @@ Trained on flat terrain with domain randomization (friction, mass, external push
 
 ---
 
+### Pretrained Checkpoint
+
+Download from [HuggingFace](http://huggingface.co/Siddarth09/bheema_locomotion):
+
+
 ## Architecture
 
 ```
