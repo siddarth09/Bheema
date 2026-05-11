@@ -11,8 +11,8 @@ from .g1_config import PinG1Model
 # --------------------------------------------------------------------------------
 # State Vector: [x, y, z, roll, pitch, yaw, vx, vy, vz, wx, wy, wz]
 COST_MATRIX_Q = np.diag([
-    500.0,  1000.0, 3000.0,    # x, y, z position
-    3000.0, 5000.0, 400.0,    # roll, pitch, yaw  
+    200.0,  1000.0, 3000.0,    # x, y, z position
+    5000.0, 5000.0, 900.0,    # roll, pitch, yaw  
     500.0,  1000.0,  200.0,    # vx, vy, vz
     100.0,   100.0,  100.0     # wx, wy, wz
 ])

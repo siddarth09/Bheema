@@ -20,9 +20,9 @@ from bheema.plotter import plot_mpc_result, plot_swing_foot_traj, plot_solve_tim
 # --------------------------------------------------------------------------------
 
 # Simulation Setting
-INITIAL_X_POS = -10
+INITIAL_X_POS = 0
 INITIAL_Y_POS = 0
-RUN_SIM_LENGTH_S = 20.0
+RUN_SIM_LENGTH_S = 120.0
 
 RENDER_HZ = 120.0
 RENDER_DT = 1.0 / RENDER_HZ
@@ -41,12 +41,16 @@ class BodyCmdPhase:
 NOMINAL_Z = 0.66
 
 CMD_SCHEDULE = [
-    BodyCmdPhase(0.0, 5.0, 0.0, 0.0, NOMINAL_Z, 0.0),    # Stand for 5s
-    BodyCmdPhase(5.0, 30.0, 0.8, 0.0, NOMINAL_Z, 0.0),    # Slow walk 0.3 m/s
+    BodyCmdPhase(0.0,  5.0,  0.0,  0.0,  NOMINAL_Z, 0.0),    # Stand still
+    BodyCmdPhase(15.0, 20.0, 0.3,  0.0,  NOMINAL_Z, 0.0),    # Walk forward (warmup)
+    BodyCmdPhase(20.0, 40.0, 1.0,  0.0,  NOMINAL_Z, 0.0),    # Run forward
+    BodyCmdPhase(40.0,  50.0, 0.0,  0.3,  NOMINAL_Z, 0.0),    # Strafe left
+    BodyCmdPhase(50.0, 55.0, 0.0, -0.3,  NOMINAL_Z, 0.0),    # Strafe right
+    BodyCmdPhase(55.0, 80.0, 1.0,  0.0,  NOMINAL_Z, 0.0),    # Run forward
 ]
 # Gait Setting (Biped Walk)
-GAIT_HZ = 1.2
-GAIT_DUTY = 0.75
+GAIT_HZ = 1.3
+GAIT_DUTY = 0.65
 GAIT_T = 1.0 / GAIT_HZ
 
 # Trajectory Reference Setting (defaults)
@@ -71,11 +75,10 @@ SIM_STEPS = int(RUN_SIM_LENGTH_S * SIM_HZ)
 CTRL_STEPS = int(RUN_SIM_LENGTH_S * CTRL_HZ)
 
 # MPC loop rate
-MPC_DT = GAIT_T / 16
+MPC_DT = GAIT_T / 32
 MPC_HZ = 1.0 / MPC_DT
 STEPS_PER_MPC = max(1, int(CTRL_HZ // MPC_HZ))  
 
-# TEMPORARY GOD MODE FOR DEBUGGING ONLY
 SAFETY = 1.0
 HIP_LIM = 120.0     
 HIP_ROLL_LIM = 120.0
@@ -224,45 +227,12 @@ with mjv.launch_passive(mujoco_g1.model, mujoco_g1.data) as viewer:
                 w_opt = sol["x"].full().flatten()
                 U_opt = w_opt[12 * (N) :].reshape((12, N), order="F")
 
-                # if ctrl_i == 0:  # Print only the first MPC call
-                #     print(f"Initial CoM state: {g1.compute_com_x_vec().flatten()}")
-                #     print(f"Left foot lever:  {traj.r_l_foot_world[:, 0]}")
-                #     print(f"Right foot lever: {traj.r_r_foot_world[:, 0]}")
-                #     print(f"Contact table[0]: {traj.contact_table[:, 0]}")
-                #     print(f"x_ref[0]: {traj.compute_x_ref_vec()[:, 0]}")
-                #     g, C, M = g1.compute_dynamics_terms()
-                #     print(f"Gravity term left leg [6:12]: {g[6:12]}")
-                #     print(f"Gravity term right leg [12:18]: {g[12:18]}")
-                #     print(f"MPC wrench left: {U_opt[:6, 0]}")
-                #     print(f"MPC wrench right: {U_opt[6:, 0]}")
-                #     print(f"Pinocchio total mass: {sum([g1.model.inertias[i].mass for i in range(g1.model.njoints)]):.2f} kg")
-                #     print(f"Pinocchio CoM: {g1.pos_com_world}")
-                #     stats = mpc.solver.stats()
-                #     print(f"QP status: {stats.get('return_status')}")
-                #     print(f"QP cost: {sol['cost']}")
-                #     w = sol['x'].full().flatten()
-                #     print(f"First 5 state vars: {w[0:5]}")
-                #     print(f"First force vars (should be nonzero): {w[12*N:12*N+12]}")
-
-
-                #     J_L = g1.compute_leg_Jacobian_world("LEFT")
-                #     print(f"Left leg Jacobian:\n{np.array2string(J_L, precision=4, suppress_small=True)}")
-                #     foot_L, _ = g1.get_foot_placement_in_world()
-                #     print(f"Pinocchio left foot world pos: {foot_L}")
-
-
-
-                #     mj.mj_forward(mujoco_g1.model, mujoco_g1.data)
-                #     qfrc_bias = mujoco_g1.data.qfrc_bias.copy()
-                #     print(f"MuJoCo qfrc_bias left leg:  {qfrc_bias[6:12]}")
-                #     print(f"MuJoCo qfrc_bias right leg: {qfrc_bias[12:18]}")
-                #     print(f"Pinocchio g left leg:       {g[6:12]}")
-
+                last_mpc_time = time_now_s 
 
                    
 
             # Extract first 6D Wrench for both legs from MPC
-            mpc_force_world[:, ctrl_i] = U_opt[:, 0]
+            # mpc_force_world[:, ctrl_i] = U_opt[:, 0]
             if x_vel_des_body == 0.0 and y_vel_des_body == 0.0:
                 override_mask = np.array([1, 1])
             else:
@@ -272,7 +242,10 @@ with mjv.launch_passive(mujoco_g1.model, mujoco_g1.data) as viewer:
                 gait_time = 0.0  
             else:
                 gait_time = time_now_s
-
+            time_since_mpc = time_now_s - last_mpc_time
+            k_interp = int(time_since_mpc / MPC_DT)
+            k_interp = min(k_interp, N - 1)
+            mpc_force_world[:, ctrl_i] = U_opt[:, k_interp]
 
             LEFT = leg_controller.compute_leg_torque(
                 "LEFT", g1, gait, mpc_force_world[LEG_SLICE["LEFT"], ctrl_i], gait_time
@@ -352,28 +325,28 @@ com_x = x_vec[0, :]                    # CoM X
 
 fig, ax = plt.subplots(figsize=(10, 5))
     
-# Plot the forward progression
-ax.plot(t_vec, left_foot_x, label='Left Foot X', color='blue', linewidth=2)
-ax.plot(t_vec, right_foot_x, label='Right Foot X', color='orange', linewidth=2)
-ax.plot(t_vec, com_x, label='CoM X', color='green', linestyle='--', linewidth=2)
+# # Plot the forward progression
+# ax.plot(t_vec, left_foot_x, label='Left Foot X', color='blue', linewidth=2)
+# ax.plot(t_vec, right_foot_x, label='Right Foot X', color='orange', linewidth=2)
+# ax.plot(t_vec, com_x, label='CoM X', color='green', linestyle='--', linewidth=2)
     
-ax.set_title('Foot Forward Progression (Step Length Analysis)')
-ax.set_xlabel('Time (s)')
-ax.set_ylabel('World X Position (m)')
-ax.grid(True)
-ax.legend(loc='upper left')
+# ax.set_title('Foot Forward Progression (Step Length Analysis)')
+# ax.set_xlabel('Time (s)')
+# ax.set_ylabel('World X Position (m)')
+# ax.grid(True)
+# ax.legend(loc='upper left')
     
-plt.tight_layout()
-plt.show()
+# plt.tight_layout()
+# plt.show()
 
 
-fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(com_z_log, label='Actual CoM Z')
-ax.plot(ref_z_log, label='Reference Z', linestyle='--')
-ax.set_title('CoM Z vs Reference Z')
-ax.set_ylabel('Height (m)')
-ax.set_xlabel('MPC step')
-ax.legend()
-ax.grid(True)
-plt.tight_layout()
-plt.show()
+# fig, ax = plt.subplots(figsize=(10, 4))
+# ax.plot(com_z_log, label='Actual CoM Z')
+# ax.plot(ref_z_log, label='Reference Z', linestyle='--')
+# ax.set_title('CoM Z vs Reference Z')
+# ax.set_ylabel('Height (m)')
+# ax.set_xlabel('MPC step')
+# ax.legend()
+# ax.grid(True)
+# plt.tight_layout()
+# plt.show()
