@@ -18,10 +18,19 @@ import numpy as np
 
 from teleop import Teleop
 from rl_bridge import RLBridge
+from pathlib import Path
+from huggingface_hub import hf_hub_download
 
 # ─── Config ───
-MJCF_PATH = "/home/sid/projects25/src/bheema/unitree_g1/scene_with_hands.xml"
-CHECKPOINT = "/home/sid/mjlab/logs/rsl_rl/g1_velocity/2026-05-07_16-53-26/model_59999.pt"
+_ROOT = Path(__file__).parent.parent  # bheema_rl/ → bheema/ → project root
+MJCF_PATH = str(_ROOT / "unitree_g1" / "scene_with_hands.xml")
+
+# Download checkpoint from HuggingFace (cached after first download)
+CHECKPOINT = hf_hub_download(
+    repo_id="Siddarth09/bheema_locomotion",
+    filename="model_59999.pt",
+)
+
 
 SIM_HZ = 1000
 SIM_DT = 1.0 / SIM_HZ

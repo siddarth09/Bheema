@@ -41,11 +41,9 @@ class BodyCmdPhase:
 NOMINAL_Z = 0.66
 
 CMD_SCHEDULE = [
-    BodyCmdPhase(0.0,  5.0,  0.0,  0.0,  NOMINAL_Z, 0.0),    # Stand still
+    BodyCmdPhase(0.0,  3.0,  0.0,  0.0,  NOMINAL_Z, 0.0),    # Stand still
     BodyCmdPhase(15.0, 20.0, 0.3,  0.0,  NOMINAL_Z, 0.0),    # Walk forward (warmup)
     BodyCmdPhase(20.0, 40.0, 1.0,  0.0,  NOMINAL_Z, 0.0),    # Run forward
-    BodyCmdPhase(40.0,  50.0, 0.0,  0.3,  NOMINAL_Z, 0.0),    # Strafe left
-    BodyCmdPhase(50.0, 55.0, 0.0, -0.3,  NOMINAL_Z, 0.0),    # Strafe right
     BodyCmdPhase(55.0, 80.0, 1.0,  0.0,  NOMINAL_Z, 0.0),    # Run forward
 ]
 # Gait Setting (Biped Walk)

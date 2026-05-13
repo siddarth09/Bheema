@@ -7,9 +7,9 @@ import numpy as np
 
 from bheema.g1_config import PinG1Model
 
-XML_PATH = "/home/sid/projects25/src/bheema/unitree_g1/scene_with_hands.xml"
 
 
+XML_PATH = str(Path(__file__).parent.parent/ "unitree_g1" / "scene_with_hands.xml")
 class MuJoCo_G1_Model:
     def __init__(self,xml_path = XML_PATH):
         self.model= mj.MjModel.from_xml_path(str(xml_path)) 

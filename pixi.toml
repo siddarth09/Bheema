@@ -1,6 +1,6 @@
 [workspace]
 name = "bheema"
-channels = ["conda-forge"]
+channels = ["conda-forge", "pypi"]
 platforms = ["linux-64"]
 
 [dependencies]
@@ -13,5 +13,12 @@ scipy = ">=1.12"
 matplotlib = ">=3.8"
 pygame = ">=2.5"
 
+[pypi-dependencies]
+pynput = ">=1.7"
+huggingface-hub = ">=0.25"
+torch = ">=2.0"
+
 [tasks]
 walk = "python bheema/main.py"
+teleop = "python bheema/main_teleop.py"
+rl = "python bheema_rl/main.py"

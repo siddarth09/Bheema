@@ -145,45 +145,18 @@ cd bheema
 pip install mujoco pinocchio casadi numpy scipy matplotlib
 python main.py
 ```
+### Using Pixi (recommended)
 
+```bash
+git clone https://github.com/siddarth09/Bheema.git
+cd bheema
+pixi install
+pixi run walk       # MPC locomotion
+pixi run teleop     # MPC with keyboard control
+pixi run rl         # RL policy with keyboard control
+```
 The MuJoCo viewer opens with the G1 standing, then walking forward after the warmup period. Close the viewer to see the telemetry plots.
 
-### Configuration
-
-Key parameters in `main.py`:
-
-```python
-NOMINAL_Z = 0.66        # CoM height (calibrated from Pinocchio FK)
-GAIT_HZ = 1.1           # Step frequency
-GAIT_DUTY = 0.80        # Fraction of gait cycle in stance
-CTRL_HZ = 200           # Leg controller rate
-MPC_DT = GAIT_T / 16    # MPC timestep (~62.5ms)
-```
-
-Walking commands are defined as a schedule of velocity phases:
-
-```python
-CMD_SCHEDULE = [
-    BodyCmdPhase(0.0, 5.0, 0.0, 0.0, NOMINAL_Z, 0.0),    # Stand
-    BodyCmdPhase(5.0, 60.0, 0.5, 0.0, NOMINAL_Z, 0.0),    # Walk forward
-]
-```
-
----
-
-## Lessons learned
-
-Some hard-won insights from building this:
-
-**The Pinocchio/MuJoCo body offset** was the single most impactful bug. A 0.793m vertical mismatch meant every Jacobian, gravity term, and CoM position was wrong. The robot would free-fall from 1.5m while the controller thought it was at 0.66m. Always verify your kinematic model matches your simulator by printing both CoM positions side by side.
-
-**Open-loop feedforward is not enough.** The MIT Cheetah paper's WBIC outputs joint positions for a high-rate PD controller. Without that PD layer, the stance legs have zero stiffness and any perturbation grows without bound. The robot crumpled to the ground with mathematically correct but practically useless torques.
-
-**Hard state constraints kill the QP.** Clamping roll/pitch/yaw to ±15 degrees seems reasonable until yaw drifts to 16 degrees — then the QP is infeasible and returns garbage forces. Use soft costs (high Q weights on pitch and roll) instead. This keeps the linearization valid without risking solver failures.
-
-**Bipedal sway is not optional.** Quadruped implementations don't need lateral CoM shifting because four legs provide a wide support polygon. A biped must actively shift its CoM over the stance foot before lifting the swing foot.
-
-**Start with standing.** Every time I tried to debug walking without stable standing first, I wasted hours. Get double-support standing rock solid, then add gait cycling, then velocity commands. Each layer depends on the one below.
 
 ---
 

@@ -57,16 +57,16 @@ class CentroidalMPC:
     def __init__(self, g1: PinG1Model, traj: ComTraj):
         self.Q = COST_MATRIX_Q 
         self.R = COST_MATRIX_R 
-        self.nvars = traj.N * NX + traj.N * NU
+        self.nvars = traj.N * NX + traj.N * NU #Number of total decision vars
         self.solve_time: float = 0 
         self.N = traj.N
-
+        # Subdiagnoal shift matrix S
         self.I_block = ca.DM.eye(self.N * NX)
         ones_N_minus_1 = np.ones(self.N - 1)
-        S_scipy = sp.kron(sp.diags([ones_N_minus_1], [-1]), sp.eye(NX))
+        S_scipy = sp.kron(sp.diags([ones_N_minus_1], [-1]), sp.eye(NX)) # kronecker product 
         self.S_block = self._scipy_to_casadi(S_scipy)
 
-        self.A_ineq_static = self._precompute_friction_and_cop_matrix(traj)
+        self.A_ineq_static = self._precompute_friction_and_cop_matrix(traj) #Static matrix since there are no dependency on robot states
         self.dyn_builder = self._create_dynamics_function()
 
         self._build_sparse_matrix(traj, verbose=True)
@@ -118,27 +118,7 @@ class CentroidalMPC:
         lbx_np = np.full((nvars, 1), -np.inf, dtype=float)
         ubx_np = np.full((nvars, 1),  np.inf, dtype=float)
 
-        # ---------------------------------------------------------
-        # 1. STATE CONSTRAINTS (The first N*12 variables)
-        # ---------------------------------------------------------
-        # State block layout: [x, y, z, roll, pitch, yaw, vx, vy, vz, wx, wy, wz]
-        # for i in range(N):
-        #     roll_idx  = i * 12 + 3
-        #     pitch_idx = i * 12 + 4
-        #     yaw_idx   = i * 12 + 5
-            
-        #     # Lock Roll and Pitch to +/- 15 degrees (0.26 rad)
-        #     # This prevents the torso from tipping over and causing Gimbal Lock
-        #     lbx_np[roll_idx, 0] = -0.26
-        #     ubx_np[roll_idx, 0] =  0.26
-        #     lbx_np[pitch_idx, 0] = -0.26
-        #     ubx_np[pitch_idx, 0] =  0.26
-
-        #     # Lock Yaw to +/- 30 degrees (0.52 rad)
-        #     # This prevents the 180-degree "Helicopter" spin
-        #     lbx_np[yaw_idx, 0] = -0.52
-        #     ubx_np[yaw_idx, 0] =  0.52
-        
+       
         # ---------------------------------------------------------
         # 2. CONTROL CONSTRAINTS (The variables after N*12)
         # ---------------------------------------------------------
@@ -147,7 +127,7 @@ class CentroidalMPC:
 
         contact = np.asarray(traj.contact_table, dtype=bool)  
 
-        # --- A) Swing Legs: Zero out everything ---
+        # --- A) Swing Legs
         swing = ~contact
         mask_swing = np.zeros((12, N), dtype=bool)
         for i in range(2): # For each leg
@@ -160,7 +140,7 @@ class CentroidalMPC:
         ubx_np[force_idx[mask_swing], 0] = 0.0
 
         # --- B) Stance Legs: Ceiling on Vertical Force (fz) ---
-        # Rows 2 (Left fz) and 8 (Right fz)
+       
         for i in range(N):
             # Left Stance
             if contact[0, i]:
@@ -267,7 +247,7 @@ class CentroidalMPC:
     def _assemble_A_matrix(self, Ad, Bd):
         big_minus_Ad, big_minus_Bd = self.dyn_builder(Ad, Bd)
         term_Ad = self.S_block @ big_minus_Ad
-        A_eq = ca.horzcat(self.I_block + term_Ad, big_minus_Bd)
+        A_eq = ca.horzcat(self.I_block + term_Ad, big_minus_Bd) #concatenates horizontally
         A_total = ca.vertcat(A_eq, self.A_ineq_static)
         return A_total
     

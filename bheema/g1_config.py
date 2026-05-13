@@ -5,7 +5,7 @@ from pathlib import Path
 from numpy import cos,sin 
 
 
-XML_PATH = "/home/sid/projects25/src/bheema/unitree_g1/g1_with_hands.xml"
+XML_PATH = str(Path(__file__).parent.parent/ "unitree_g1" / "g1_with_hands.xml")
 
 class ConfigurationState:
     def __init__(self):
