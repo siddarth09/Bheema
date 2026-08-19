@@ -1,24 +1,39 @@
 import numpy as np
 from bheema.g1_config import PinG1Model
+from bheema.params import FootParams, GaitParams
 from numpy import cos, sin
 
 # --------------------------------------------------------------------------------
-# Gait Setting (BIPED)
+# Gait scheduling and footstep planning (BIPED)
 # --------------------------------------------------------------------------------
-
-PHASE_OFFSET = np.array([0.0, 0.5]).reshape(2)    
-HEIGHT_SWING = 0.18
-NOMINAL_STANCE_WIDTH = 0.25
-MIN_FOOT_GAP = 0.15
+# Every tunable lives in GaitParams / FootParams -- see bheema/params.py.
 
 class Gait():
-    def __init__(self, frequency_hz, duty):
-        self.gait_duty = duty
-        self.gait_hz = frequency_hz
-        self.NOMINAL_STANCE_WIDTH = NOMINAL_STANCE_WIDTH
-        self.gait_period = 1.0 / frequency_hz 
-        self.stance_time = self.gait_duty * self.gait_period
-        self.swing_time = (1.0 - self.gait_duty) * self.gait_period
+    """Phase-based contact schedule + Raibert footstep planner.
+
+    `params` carries every tunable. `frequency_hz` / `duty` may still be passed
+    positionally for backward compatibility; they override the corresponding fields.
+    """
+
+    def __init__(self, frequency_hz: float | None = None, duty: float | None = None,
+                 params: GaitParams | None = None, foot: FootParams | None = None):
+        p = params or GaitParams()
+        if frequency_hz is not None or duty is not None:
+            from dataclasses import replace
+            p = replace(p,
+                        frequency_hz=p.frequency_hz if frequency_hz is None else frequency_hz,
+                        duty=p.duty if duty is None else duty)
+        self.p = p
+        self.foot = foot or FootParams()
+        self.surface = None
+
+        self.gait_duty = p.duty
+        self.gait_hz = p.frequency_hz
+        self.NOMINAL_STANCE_WIDTH = p.nominal_stance_width
+        self.gait_period = 1.0 / p.frequency_hz
+        self.stance_time = p.duty * self.gait_period
+        self.swing_time = (1.0 - p.duty) * self.gait_period
+        self.phase_offset = np.asarray(p.phase_offset, dtype=float).reshape(2)
 
     def compute_current_mask(self, time):
         mask = self.compute_contact_table(time, 0, 1)
@@ -28,31 +43,36 @@ class Gait():
         t = t0 + np.arange(N) * dt
         t = t + dt/2.0
 
-        phases = np.mod(PHASE_OFFSET[:, None] + t[None, :] / self.gait_period, 1.0)
+        phases = np.mod(self.phase_offset[:, None] + t[None, :] / self.gait_period, 1.0)
         contact_table = (phases < self.gait_duty).astype(np.int32)
         return contact_table        
     
+    def _lateral_offset(self, leg: str) -> float:
+        """Signed hip offset for a leg, floored by the self-collision gap."""
+        half_gap = self.p.min_foot_gap / 2.0
+        half_width = self.p.nominal_stance_width / 2.0
+        if leg.lower() == "left":
+            return max(half_width, half_gap)
+        return min(-half_width, -half_gap)
+
+    def _prediction_horizon(self) -> tuple[float, float]:
+        """(T, pred_time) used by the Raibert heuristic."""
+        T = self.swing_time + self.p.stance_frac_in_T * self.stance_time
+        return T, self.p.pred_time_frac * T
+
     def predict_nominal_touchdown(self, g1: PinG1Model, leg: str):
         base_pos = g1.current_config.base_pos
         base_vel = g1.current_config.base_vel
         R_z = g1.R_z
         yaw_rate = getattr(g1, 'yaw_rate_des_world', 0.0) 
 
-        half_gap = MIN_FOOT_GAP / 2.0
-        if leg.lower() == "left":
-            lateral_offset = max(NOMINAL_STANCE_WIDTH / 2.0, half_gap)
-        else:
-            lateral_offset = min(-NOMINAL_STANCE_WIDTH / 2.0, -half_gap)
-            
+        lateral_offset = self._lateral_offset(leg)
         hip_offset = np.array([0.0, lateral_offset, 0.0])
         body_pos = np.array([base_pos[0], base_pos[1], 0.0])
         hip_pos_world = body_pos + R_z @ hip_offset
 
         t_swing = self.swing_time
-        t_stance = self.stance_time
-
-        T = t_swing + 0.5 * t_stance
-        pred_time = T / 2.0
+        T, pred_time = self._prediction_horizon()
 
         pos_norminal_term = [hip_pos_world[0], hip_pos_world[1], 0.0]
         pos_drift_term = [base_vel[0] * pred_time, base_vel[1] * pred_time, 0.0]
@@ -83,12 +103,7 @@ class Gait():
         pos_foot_L, pos_foot_R = g1.get_foot_placement_in_world()
         foot_pos = pos_foot_L if leg.lower() == "left" else pos_foot_R
 
-        half_gap = MIN_FOOT_GAP / 2.0
-        if leg.lower() == "left":
-            lateral_offset = max(NOMINAL_STANCE_WIDTH / 2.0, half_gap)
-        else:
-            lateral_offset = min(-NOMINAL_STANCE_WIDTH / 2.0, -half_gap)
-            
+        lateral_offset = self._lateral_offset(leg)
         hip_offset = np.array([0.0, lateral_offset, 0.0])
         body_pos = np.array([base_pos[0], base_pos[1], 0.0])
         hip_pos_world = body_pos + R_z @ hip_offset
@@ -99,13 +114,12 @@ class Gait():
         y_pos_des = getattr(g1, 'y_pos_des_world', pos_com_world[1])
 
         t_swing = self.swing_time
-        t_stance = self.stance_time
-        T = t_swing + 0.5 * t_stance
-        pred_time = T / 2.0
+        T, pred_time = self._prediction_horizon()
 
-        # Raibert Heuristic Gains
-        k_v_x, k_p_x = 1.1 * T, 0.3             
-        k_v_y, k_p_y = 0.5 * T, 0.05
+        # Raibert heuristic gains. Velocity gains scale with T so they stay dimensionally
+        # consistent when the gait frequency changes.
+        k_v_x, k_p_x = self.p.k_vel_x_scale * T, self.p.k_pos_x
+        k_v_y, k_p_y = self.p.k_vel_y_scale * T, self.p.k_pos_y
 
         pos_norminal_term = [hip_pos_world[0], hip_pos_world[1], 0.0]
         pos_drift_term = [x_vel_des * pred_time, y_vel_des * pred_time, 0.0]
@@ -123,8 +137,10 @@ class Gait():
                                np.array(pos_correction_term) + np.array(vel_correction_term) + 
                                np.array(rotation_correction_term))
         
-        foot_pos[2] = 0.0 
-        return self.make_swing_trajectory(foot_pos, pos_touchdown_world, t_swing, h_sw=HEIGHT_SWING), pos_touchdown_world
+        foot_pos[2] = 0.0
+        return (self.make_swing_trajectory(foot_pos, pos_touchdown_world, t_swing,
+                                           h_sw=self.p.swing_height),
+                pos_touchdown_world)
     
     
     def make_swing_trajectory(self, p0, pf, t_swing, h_sw):

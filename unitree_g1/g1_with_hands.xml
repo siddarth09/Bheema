@@ -195,6 +195,9 @@
             <geom pos="0.0039635 0 -0.044" class="visual" material="black" mesh="head_link"/>
             <geom pos="0.0039635 0 -0.044" class="collision" mesh="head_link"/>
             <site name="imu_in_torso" size="0.01" pos="-0.03959 -0.00224 0.14792"/>
+            <site name="head_depth_cam" size="0.01" pos="0.062 0 0.385" group="4"/>
+            <camera name="head_depth" pos="0.062 0 0.385" xyaxes="0 -1 0 0.342 0 0.940"
+              fovy="58"/>
             <body name="left_shoulder_pitch_link" pos="0.0039563 0.10022 0.24778"
               quat="0.990264 0.139201 1.38722e-05 -9.86868e-05">
               <inertial pos="0 0.035892 -0.011628" quat="0.654152 0.0130458 -0.326267 0.68225" mass="0.718"

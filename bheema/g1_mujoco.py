@@ -6,14 +6,15 @@ import pinocchio as pin
 import numpy as np 
 
 from bheema.g1_config import PinG1Model
+from bheema.params import BodyParams
 
 
-
-XML_PATH = str(Path(__file__).parent.parent/ "unitree_g1" / "scene_with_hands.xml")
+XML_PATH = str(Path(__file__).parent.parent/ "unitree_g1"/ "scenes" / "scene_platform_easy.xml")
 class MuJoCo_G1_Model:
-    def __init__(self,xml_path = XML_PATH):
-        self.model= mj.MjModel.from_xml_path(str(xml_path)) 
+    def __init__(self, xml_path=XML_PATH, z_offset: float | None = None):
+        self.model = mj.MjModel.from_xml_path(str(xml_path))
         self.data = mj.MjData(self.model)
+        self.z_offset = BodyParams().pin_mujoco_z_offset if z_offset is None else z_offset
         self.viewer = None 
         self.base_bid = mj.mj_name2id(self.model,mj.mjtObj.mjOBJ_BODY,"pelvis")
 
@@ -25,6 +26,16 @@ class MuJoCo_G1_Model:
             "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
             "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint"
         ]
+
+        # Foot collision geoms, for measuring real contact. The G1's collision geoms are
+        # unnamed, so they are identified by owning body instead.
+        self.foot_geoms = {}
+        for side in ("left", "right"):
+            bid = mj.mj_name2id(self.model, mj.mjtObj.mjOBJ_BODY, f"{side}_ankle_roll_link")
+            self.foot_geoms[side.upper()] = set(
+                np.flatnonzero(self.model.geom_bodyid == bid).tolist()
+            ) if bid != -1 else set()
+        self._f6 = np.zeros(6)
 
         self.actuator_ids = [] 
         self.qpos_adrs = [] 
@@ -39,13 +50,27 @@ class MuJoCo_G1_Model:
 
     def update_with_q_pin(self,q_pin):
 
-        BODY_OFFSET = np.array([0.0,0.0,0.793])
-        self.data.qpos[0:3] = q_pin[0:3] + BODY_OFFSET 
+        self.data.qpos[0:3] = q_pin[0:3] + np.array([0.0, 0.0, self.z_offset])
         self.data.qpos[3] = q_pin[6]
         self.data.qpos[4:7] = q_pin[3:6]
         self.data.qpos[7:] = q_pin[7:]
 
         mj.mj_forward(self.model,self.data)
+
+    def foot_contact_forces(self):
+        """Normal contact force magnitude per foot, as (LEFT, RIGHT) in newtons.
+
+        The gait schedule is open-loop, so it can declare a foot to be in stance while it is
+        airborne. This is the signal for detecting that.
+        """
+        out = {"LEFT": 0.0, "RIGHT": 0.0}
+        for i in range(self.data.ncon):
+            c = self.data.contact[i]
+            for side, geoms in self.foot_geoms.items():
+                if c.geom1 in geoms or c.geom2 in geoms:
+                    mj.mj_contactForce(self.model, self.data, i, self._f6)
+                    out[side] += abs(self._f6[0])
+        return out["LEFT"], out["RIGHT"]
 
     def set_arm_posture(self):
         l_shoulder_id = mj.mj_name2id(self.model,mj.mjtObj.mjOBJ_ACTUATOR,"left_shoulder_pitch_joint")
@@ -75,8 +100,7 @@ class MuJoCo_G1_Model:
         v_body = R.T @ v_world
 
         # 3. Update Pinocchio state
-        BODY_OFFSET = np.array([0.0, 0.0, 0.793])
-        g1.current_config.base_pos = mujoco_q[0:3] - BODY_OFFSET
+        g1.current_config.base_pos = mujoco_q[0:3] - np.array([0.0, 0.0, self.z_offset])
         g1.current_config.base_quad = np.array([qx, qy, qz, qw]) 
         g1.current_config.base_vel = v_body
         g1.current_config.base_ang_vel = w_body

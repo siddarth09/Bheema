@@ -3,60 +3,35 @@ import numpy as np
 import scipy.sparse as sp
 import time
 
-from .com_traj import ComTraj 
-from .g1_config import PinG1Model 
+from .com_traj import ComTraj
+from .g1_config import PinG1Model
+from .params import MPCParams, FootParams
 
 # --------------------------------------------------------------------------------
-# Model Predictive Control Setting (BIPED)
+# Model Predictive Control (BIPED)
 # --------------------------------------------------------------------------------
-# State Vector: [x, y, z, roll, pitch, yaw, vx, vy, vz, wx, wy, wz]
-COST_MATRIX_Q = np.diag([
-    200.0,  1000.0, 3000.0,    # x, y, z position
-    5000.0, 5000.0, 900.0,    # roll, pitch, yaw  
-    500.0,  1000.0,  200.0,    # vx, vy, vz
-    100.0,   100.0,  100.0     # wx, wy, wz
-])
+# State vector: [x, y, z, roll, pitch, yaw, vx, vy, vz, wx, wy, wz]
+# Input vector: 2 feet x 6D wrench [Fx, Fy, Fz, Tx, Ty, Tz]
+#
+# All weights, friction coefficients, foot geometry and solver settings now live in
+# MPCParams / FootParams (see bheema/params.py) and arrive through the constructor.
+NX = 12     # state dimension -- structural, not a tunable
+NU = 12     # input dimension -- structural, not a tunable
 
-COST_MATRIX_R = np.diag([
-    1.0, 1.0, 1e-2,  10.0, 10.0, 10.0,   # Left:  Fx, Fy, Fz, Tx, Ty, Tz
-    1.0, 1.0, 1e-2,  10.0, 10.0, 10.0    # Right: Fx, Fy, Fz, Tx, Ty, Tz
-])
-
-MU = 0.8            # Linear friction coefficient
-MU_TAU = 0.1       # Torsional friction coefficient (yaw rotation of the foot)
-
-# Foot dimensions for Center of Pressure (CoP) constraints
-FOOT_LX = 0.12    # Half-length of the foot (m) (front/back)
-FOOT_LY = 0.05     # Half-width of the foot (m) (left/right)
-FOOT_LX_FRONT = 0.12  
-FOOT_LX_BACK = 0.05
-NX = 12     # State size (6-DOF 12 states)
-NU = 12     # Input size (2 feet x 6D Wrenches: Fx, Fy, Fz, Tx, Ty, Tz)
-
-OPTS = {
-    'warm_start_primal': True,
-    'warm_start_dual': True,
-    'error_on_fail': False,
-    "osqp": {
-        "eps_abs": 1e-2,
-        "eps_rel": 1e-2,
-        "max_iter": 1400,
-        "polish": False,
-        "verbose": False,
-        'adaptive_rho': True,
-        "check_termination": 10,
-        'adaptive_rho_interval': 25,
-        "scaling": 5,
-        "scaled_termination": True
-    }
-}
+N_INEQ_PER_LEG = 10   # friction pyramid (4) + CoP (4) + torsional friction (2)
 
 SOLVER_NAME: str = "osqp"
 
 class CentroidalMPC:
-    def __init__(self, g1: PinG1Model, traj: ComTraj):
-        self.Q = COST_MATRIX_Q 
-        self.R = COST_MATRIX_R 
+    def __init__(self, g1: PinG1Model, traj: ComTraj,
+                 params: MPCParams | None = None,
+                 foot: FootParams | None = None):
+        self.p = params or MPCParams()
+        self.foot = foot or FootParams()
+        self.Q = np.diag(np.concatenate([self.p.q_pos, self.p.q_rpy,
+                                         self.p.q_vel, self.p.q_omega]))
+        self.R = np.diag(np.concatenate([self.p.r_force, self.p.r_torque,
+                                         self.p.r_force, self.p.r_torque]))
         self.nvars = traj.N * NX + traj.N * NU #Number of total decision vars
         self.solve_time: float = 0 
         self.N = traj.N
@@ -109,8 +84,9 @@ class CentroidalMPC:
         return sol
 
     def _compute_bounds(self, traj: ComTraj):
-        fz_min = 23.0   # Minimum pressure to prevent foot slip
-        fz_max = 1200.0 # Maximum allowed vertical push 
+        fz_min = self.p.fz_min
+        fz_max = self.p.fz_max
+        f_xy_max = self.p.f_xy_max
         N = traj.N      
         nvars = self.nvars
         start_u = N * 12
@@ -160,17 +136,17 @@ class CentroidalMPC:
             if contact[0, i]:  # Left stance
                 fx_L_idx = force_idx[0, i]
                 fy_L_idx = force_idx[1, i]
-                lbx_np[fx_L_idx, 0] = -400.0
-                ubx_np[fx_L_idx, 0] =  400.0
-                lbx_np[fy_L_idx, 0] = -400.0
-                ubx_np[fy_L_idx, 0] =  400.0
+                lbx_np[fx_L_idx, 0] = -f_xy_max
+                ubx_np[fx_L_idx, 0] =  f_xy_max
+                lbx_np[fy_L_idx, 0] = -f_xy_max
+                ubx_np[fy_L_idx, 0] =  f_xy_max
             if contact[1, i]:  # Right stance
                 fx_R_idx = force_idx[6, i]
                 fy_R_idx = force_idx[7, i]
-                lbx_np[fx_R_idx, 0] = -400.0
-                ubx_np[fx_R_idx, 0] =  400.0
-                lbx_np[fy_R_idx, 0] = -400.0
-                ubx_np[fy_R_idx, 0] =  400.0
+                lbx_np[fx_R_idx, 0] = -f_xy_max
+                ubx_np[fx_R_idx, 0] =  f_xy_max
+                lbx_np[fy_R_idx, 0] = -f_xy_max
+                ubx_np[fy_R_idx, 0] =  f_xy_max
 
 
         return ca.DM(lbx_np), ca.DM(ubx_np)
@@ -200,7 +176,27 @@ class CentroidalMPC:
         self.A_sp = A_init.sparsity()
 
         qp = {'h': self.H_sp, 'a': self.A_sp}
-        self.solver = ca.conic('S', SOLVER_NAME, qp, OPTS)
+        self.solver = ca.conic('S', SOLVER_NAME, qp, self._solver_opts())
+
+    def _solver_opts(self) -> dict:
+        p = self.p
+        return {
+            'warm_start_primal': True,
+            'warm_start_dual': True,
+            'error_on_fail': False,
+            "osqp": {
+                "eps_abs": p.osqp_eps_abs,
+                "eps_rel": p.osqp_eps_rel,
+                "max_iter": p.osqp_max_iter,
+                "polish": p.osqp_polish,
+                "verbose": False,
+                'adaptive_rho': True,
+                "check_termination": p.osqp_check_termination,
+                'adaptive_rho_interval': p.osqp_adaptive_rho_interval,
+                "scaling": p.osqp_scaling,
+                "scaled_termination": True,
+            },
+        }
 
     def _update_sparse_matrix(self, traj: ComTraj):
         Ad_dm = ca.DM(traj.Ad) 
@@ -223,7 +219,7 @@ class CentroidalMPC:
         beq = ca.vertcat(beq_first, beq_rest)
 
         # 10 constraints per leg * 2 legs * N horizon
-        n_ineq = 2 * 10 * self.N
+        n_ineq = 2 * N_INEQ_PER_LEG * self.N
         l_ineq = -ca.inf * ca.DM.ones(n_ineq, 1)
         
         u_ineq_np = np.inf * np.ones(n_ineq)
@@ -234,8 +230,8 @@ class CentroidalMPC:
             for leg in range(2):
                 if ct[leg, k] == 1: 
                     # STANCE: Enforce friction pyramid and CoP limits <= 0
-                    u_ineq_np[idx:idx+10] = 0.0
-                idx += 10
+                    u_ineq_np[idx:idx+N_INEQ_PER_LEG] = 0.0
+                idx += N_INEQ_PER_LEG
         
         u_ineq = ca.DM(u_ineq_np)
 
@@ -275,8 +271,10 @@ class CentroidalMPC:
         BIPED: Each foot has 6 inputs. We constrain Forces (Friction) and Torques (CoP).
         """
         rows, cols, vals = [], [], []
-        baseU = self.N * NX 
+        baseU = self.N * NX
         r0 = 0
+        mu, mu_tau = self.p.mu, self.p.mu_tau
+        lx_front, lx_back, ly = self.foot.lx_front, self.foot.lx_back, self.foot.ly
         
         for k in range(self.N):
             uk0 = baseU + k * NU
@@ -287,33 +285,33 @@ class CentroidalMPC:
                 
                 # --- LINEAR FRICTION PYRAMID ---
                 # 1. fx - mu*fz <= 0
-                rows.extend([r0, r0]); cols.extend([uk0+fx, uk0+fz]); vals.extend([1.0, -MU]); r0+=1
+                rows.extend([r0, r0]); cols.extend([uk0+fx, uk0+fz]); vals.extend([1.0, -mu]); r0+=1
                 # 2. -fx - mu*fz <= 0
-                rows.extend([r0, r0]); cols.extend([uk0+fx, uk0+fz]); vals.extend([-1.0, -MU]); r0+=1
+                rows.extend([r0, r0]); cols.extend([uk0+fx, uk0+fz]); vals.extend([-1.0, -mu]); r0+=1
                 # 3. fy - mu*fz <= 0
-                rows.extend([r0, r0]); cols.extend([uk0+fy, uk0+fz]); vals.extend([1.0, -MU]); r0+=1
+                rows.extend([r0, r0]); cols.extend([uk0+fy, uk0+fz]); vals.extend([1.0, -mu]); r0+=1
                 # 4. -fy - mu*fz <= 0
-                rows.extend([r0, r0]); cols.extend([uk0+fy, uk0+fz]); vals.extend([-1.0, -MU]); r0+=1
+                rows.extend([r0, r0]); cols.extend([uk0+fy, uk0+fz]); vals.extend([-1.0, -mu]); r0+=1
 
                 # --- CENTER OF PRESSURE (ZMP) LIMITS ---
                 # Ankle roll torque (tx) cannot exceed what the foot width (Y) can support
                 # 5. tx - Ly*fz <= 0
-                rows.extend([r0, r0]); cols.extend([uk0+tx, uk0+fz]); vals.extend([1.0, -FOOT_LY]); r0+=1
+                rows.extend([r0, r0]); cols.extend([uk0+tx, uk0+fz]); vals.extend([1.0, -ly]); r0+=1
                 # 6. -tx - Ly*fz <= 0
-                rows.extend([r0, r0]); cols.extend([uk0+tx, uk0+fz]); vals.extend([-1.0, -FOOT_LY]); r0+=1
+                rows.extend([r0, r0]); cols.extend([uk0+tx, uk0+fz]); vals.extend([-1.0, -ly]); r0+=1
                 
                 # Ankle pitch torque (ty) cannot exceed what the foot length (X) can support
                 # 7. ty - L_back * fz <= 0 (Max POSITIVE pitch torque happens when leaning BACK on the heel)
-                rows.extend([r0, r0]); cols.extend([uk0+ty, uk0+fz]); vals.extend([1.0, -FOOT_LX_BACK]); r0+=1
+                rows.extend([r0, r0]); cols.extend([uk0+ty, uk0+fz]); vals.extend([1.0, -lx_back]); r0+=1
                 
                 # 8. -ty - L_front * fz <= 0 (Max NEGATIVE pitch torque happens when leaning FORWARD on the toes)
-                rows.extend([r0, r0]); cols.extend([uk0+ty, uk0+fz]); vals.extend([-1.0, -FOOT_LX_FRONT]); r0+=1
+                rows.extend([r0, r0]); cols.extend([uk0+ty, uk0+fz]); vals.extend([-1.0, -lx_front]); r0+=1
                 # --- TORSIONAL FRICTION ---
                 # Yaw torque (tz) limited by normal force to prevent spinning in place
                 # 9. tz - mu_tau*fz <= 0
-                rows.extend([r0, r0]); cols.extend([uk0+tz, uk0+fz]); vals.extend([1.0, -MU_TAU]); r0+=1
+                rows.extend([r0, r0]); cols.extend([uk0+tz, uk0+fz]); vals.extend([1.0, -mu_tau]); r0+=1
                 # 10. -tz - mu_tau*fz <= 0
-                rows.extend([r0, r0]); cols.extend([uk0+tz, uk0+fz]); vals.extend([-1.0, -MU_TAU]); r0+=1
+                rows.extend([r0, r0]); cols.extend([uk0+tz, uk0+fz]); vals.extend([-1.0, -mu_tau]); r0+=1
 
         A_sp = sp.csc_matrix((vals, (rows, cols)), shape=(r0, self.nvars))
         return self._scipy_to_casadi(A_sp)

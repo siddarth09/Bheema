@@ -2,14 +2,16 @@ import numpy as np
 import pinocchio as pin
 from .g1_config import PinG1Model
 from .gait import Gait
+from .params import LegControlParams
 from dataclasses import dataclass
 
 # --------------------------------------------------------------------------------
-# Leg Controller Setting (BIPED)
+# Leg controller (BIPED)
 # --------------------------------------------------------------------------------
-
-KP_SWING = np.diag([2500, 3500, 1000, 400, 400, 400]) 
-KD_SWING = np.diag([120, 120, 120, 10, 10, 10]) 
+# Swing:  6D operational-space impedance control. Lambda = (J M^-1 J^T)^-1 is built from
+#         the FULL 49x49 mass matrix, so the inertia shaping is dynamically consistent.
+# Stance: MPC wrench mapped through J^T, plus gravity/Coriolis and a posture PD.
+# All gains live in LegControlParams -- see bheema/params.py.
 
 # Mapping from leg name to index in the 2-element biped mask
 LEG_INDEX = {
@@ -34,7 +36,11 @@ class LegOutput:
 
 class LegController():
         
-    def __init__(self):
+    def __init__(self, params: LegControlParams | None = None):
+        self.p = params or LegControlParams()
+        self.KP_SWING = np.diag(self.p.kp_swing)
+        self.KD_SWING = np.diag(self.p.kd_swing)
+        self.q_nominal = np.asarray(self.p.q_nominal, dtype=float)
         # Biped uses a 2-element mask
         self.last_mask = np.array([2, 2])
 
@@ -122,7 +128,7 @@ class LegController():
             f_ff = Lambda @ (spatial_acl_des - Jdot_dq)
 
             # PD + feedforward in 6D Cartesian space
-            force_6d = KP_SWING @ spatial_error + KD_SWING @ spatial_vel_error + f_ff 
+            force_6d = self.KP_SWING @ spatial_error + self.KD_SWING @ spatial_vel_error + f_ff
 
             # Map to joint torques + add (C*dq + g) leg segment slice
             tau_cmd = J_foot_world.T @ force_6d + (C @ dq + g)[joint_slice]
@@ -131,13 +137,22 @@ class LegController():
             # Feedforward from MPC
             tau_ff = J_foot_world.T @ -contact_wrench + (C @ dq + g)[joint_slice]
             
-            # Joint PD feedback to resist drift
+            # Joint PD feedback to resist drift between MPC updates.
+            #
+            # q_des is NOT merely a drift anchor -- it is what commands the bent-knee crouch,
+            # snapshot captures an extended reaching leg at the instant of impact, the knee
+            #
+            # But a single shared target is actively harmful while straddling a step: with one
+            # foot at 0.15 m and one at 0.00 m the two legs need different joint angles, and
+            # pulling both toward the same pose drags the robot back off the step.
+            #
+            # Compromise: keep the crouch target, but soften the gain in proportion to how
             q_leg = g1.current_config.left_leg_angle if leg_idx == 0 else g1.current_config.right_leg_angle
             dq_leg = g1.current_config.left_leg_vel if leg_idx == 0 else g1.current_config.right_leg_vel
-            q_des = np.array([-0.3, 0.0, 0.0, 0.6, -0.3, 0.0])
-            
-            Kp_stance = 150.0
-            Kd_stance = 30.0
+            q_des = self.q_nominal
+
+            Kp_stance = self.p.kp_stance
+            Kd_stance = self.p.kd_stance
             tau_pd = Kp_stance * (q_des - q_leg) - Kd_stance * dq_leg
             
             tau_cmd = tau_ff + tau_pd

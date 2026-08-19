@@ -1,10 +1,14 @@
 import numpy as np
-from bheema.g1_config import PinG1Model 
+from bheema.g1_config import PinG1Model
 from bheema.gait import Gait
+from bheema.params import MPCParams, TrajParams
 from numpy import cos, sin
 
 class ComTraj:
-    def __init__(self, g1: PinG1Model):
+    def __init__(self, g1: PinG1Model, params: TrajParams | None = None,
+                 mpc: MPCParams | None = None):
+        self.p = params or TrajParams()
+        self.mpc_p = mpc or MPCParams()
         self.dummy_g1 = PinG1Model()
         
         # Initialize trajectory endpoints
@@ -18,6 +22,22 @@ class ComTraj:
         self.N = 26 
         self.nx = 12
         self.nu = 12
+
+        # Terrain source. None => the CoM height reference is a world constant, i.e. the
+        # pre-Phase-1 behaviour.
+        self.surface = None
+        # Support height is filtered ACROSS SOLVES, not along the horizon.
+        #
+        # step. That reads up to v*T ~ 0.35 m ahead, so the reference began climbing while
+        # both feet were still on the floor -- the MPC extended the legs before the step and
+        # fell short of the box. The CoM height must follow where the feet ARE, not the
+        # terrain in front of them.
+        #
+        # So: measure the stance-foot support height each solve, low-pass it (tau ~ 0.2 s at
+        # a 50 Hz solve rate) and hold it constant over the horizon. The ramp comes from
+        # re-solving, not from look-ahead.
+        self.height_filter_alpha = 0.90
+        self._support_z_filt = None
 
     def compute_x_ref_vec(self):
         refs = [
@@ -49,10 +69,10 @@ class ComTraj:
         x0, y0, z0 = initial_pos
         yaw = self.initial_x_vec[5]
         
-        time_horizon = gait.gait_period * 1.5
+        time_horizon = gait.gait_period * self.mpc_p.horizon_periods
 
         # 1) Clamp desired world COM to stay near current position (Go2 style)
-        max_pos_error = 0.15   # slightly looser for biped sway
+        max_pos_error = self.p.max_pos_error
         
         if self.pos_des_world[0] - x0 > max_pos_error:
             self.pos_des_world[0] = x0 + max_pos_error
@@ -82,8 +102,8 @@ class ComTraj:
         self.rpy_traj_world     = np.zeros((3, N))
         self.omega_traj_world   = np.zeros((3, N))
 
-        current_sway_y = y0 
-        
+        current_sway_y = y0
+
         # ZMP Sway Logic 
         for i in range(N):
             mask = gait.compute_current_mask(time_now + i * time_step)
@@ -92,17 +112,21 @@ class ComTraj:
             if mask[0] == 1 and mask[1] == 1: 
                 zmp_target_y = 0.0 
             elif mask[0] == 1: 
-                zmp_target_y = (gait.NOMINAL_STANCE_WIDTH / 2.0) * 0.6 # Left Stance
-            else: 
-                zmp_target_y = -(gait.NOMINAL_STANCE_WIDTH / 2.0) * 0.6 # Right Stance
+                zmp_target_y = (gait.NOMINAL_STANCE_WIDTH / 2.0) * self.p.sway_fraction
+            else:
+                zmp_target_y = -(gait.NOMINAL_STANCE_WIDTH / 2.0) * self.p.sway_fraction
             
             # 2. Smooth the Sway (Low-Pass Filter) to prevent teleporting
-            filter_alpha = 0.85  # 0.0 = instant jump, 1.0 = never moves
+            filter_alpha = self.p.sway_filter_alpha
             current_sway_y = filter_alpha * current_sway_y + (1.0 - filter_alpha) * zmp_target_y
             
             # 3. Assign Position
             self.pos_traj_world[0, i] = x0 + vel_desired_world[0] * t_vec[i]
-            self.pos_traj_world[1, i] = current_sway_y 
+            self.pos_traj_world[1, i] = current_sway_y
+
+            # Height reference is TERRAIN-RELATIVE: nominal height above the ground under
+            # the predicted CoM, smoothed. As a world constant this term actively fought
+            # every step-up -- it asked the CoM to stay at 0.66 while the stance foot rose.
             self.pos_traj_world[2, i] = z_pos_des_body
 
             # 4. Mathematically tie Velocity to the smoothed Position
@@ -110,9 +134,13 @@ class ComTraj:
                 vy_sway = (current_sway_y - y0) / time_step
             else:
                 vy_sway = (current_sway_y - self.pos_traj_world[1, i-1]) / time_step
-                
+
             self.vel_traj_world[0, i] = vel_desired_world[0]
             self.vel_traj_world[1, i] = vel_desired_world[1] + vy_sway # Add sway vel to commanded vel
+            # vz stays 0. Deriving it as (pos_ref - z_actual)/dt looked like "keeping the
+            # references consistent", but at i=0 that is a velocity reference proportional to
+            # the position tracking error -- a hidden P gain outside the cost weights. It
+            # over the horizon anyway; its ramp happens between solves.
             self.vel_traj_world[2, i] = 0.0
 
         # # Linear velocity in world
@@ -138,14 +166,12 @@ class ComTraj:
         # Biped uses 2 element mask [Left, Right]
         mask_previous = np.array([2, 2])
         
-        # 50-state configuration vector for G1 dummy update
         q_dummy = self.dummy_g1.current_config.get_q()
         dq_dummy = self.dummy_g1.current_config.get_dq()
 
         for i in range(N):
             current_mask = gait.compute_current_mask(time_now + i * time_step)
 
-            # Dummy Kinematics Update (Go2 Style adapted to 50-DOF G1)
             q_dummy[0:3] = self.pos_traj_world[:, i]
             
             cy, sy = cos(self.rpy_traj_world[2, i]/2.0), sin(self.rpy_traj_world[2, i]/2.0)
@@ -325,12 +351,10 @@ if __name__ == "__main__":
 
     print("Running ComTraj Debugger...")
 
-    # Initialize Dummy Robot and Gait
     g1 = PinG1Model()
     gait = Gait(frequency_hz=1.0, duty=0.68)
     traj = ComTraj(g1)
 
-    # Dummy walking inputs
     time_now = 0.0
     time_step = 0.02
     x_vel_des = 0.4

@@ -1,19 +1,28 @@
-import pinocchio as pin 
-from pinocchio.robot_wrapper import RobotWrapper 
-import numpy as np 
-from pathlib import Path 
-from numpy import cos,sin 
+import pinocchio as pin
+from pinocchio.robot_wrapper import RobotWrapper
+import numpy as np
+from pathlib import Path
+from numpy import cos, sin
+
+from bheema.params import BodyParams, LegControlParams
 
 
 XML_PATH = str(Path(__file__).parent.parent/ "unitree_g1" / "g1_with_hands.xml")
 
-class ConfigurationState:
-    def __init__(self):
+PELVIS_SPAWN_Z = 0.74
 
-        self.base_pos = np.array([0.0,0.0,0.74-0.793])
-        self.base_quad = np.array([0.0,0.0,0.0,1.0]) 
-        # Leg joint angles [hip_p, hip_r, hip_y, knee, ankle_p, ankle_r]
-        bent_leg = np.array([-0.3,0.0,0.0,0.6,-0.3,0.0])
+
+class ConfigurationState:
+    def __init__(self, body: BodyParams | None = None,
+                 leg: LegControlParams | None = None):
+
+        body = body or BodyParams()
+        leg = leg or LegControlParams()
+
+        self.base_pos = np.array([0.0, 0.0, PELVIS_SPAWN_Z - body.pin_mujoco_z_offset])
+        self.base_quad = np.array([0.0, 0.0, 0.0, 1.0])
+        # [hip_pitch, hip_roll, hip_yaw, knee, ankle_pitch, ankle_roll]
+        bent_leg = np.asarray(leg.q_nominal, dtype=float)
         self.left_leg_angle = bent_leg.copy()
         self.right_leg_angle = bent_leg.copy() 
 
@@ -124,13 +133,14 @@ class ConfigurationState:
     
 
 class PinG1Model:
-    def __init__(self,xml_path = XML_PATH):
+    def __init__(self, xml_path=XML_PATH, body: BodyParams | None = None,
+                 leg: LegControlParams | None = None):
 
         self.robot = RobotWrapper.BuildFromMJCF(str(xml_path))
         self.model = self.robot.model 
         self.data = self.model.createData() 
 
-        self.current_config = ConfigurationState()
+        self.current_config = ConfigurationState(body=body, leg=leg)
         self.q_init = self.current_config.get_q() 
         self.dq_init = self.current_config.get_dq() 
 

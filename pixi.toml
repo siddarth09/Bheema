@@ -3,6 +3,13 @@ name = "bheema"
 channels = ["conda-forge", "pypi"]
 platforms = ["linux-64"]
 
+[activation.env]
+# Keep ROS (/opt/ros/jazzy) and user (~/.local) site-packages from shadowing
+# the pixi env's pinocchio/numpy, which caused NumPy 1.x/2.x crashes and a
+# missing pinocchio.robot_wrapper.
+PYTHONPATH = ""
+PYTHONNOUSERSITE = "1"
+
 [dependencies]
 python = ">=3.11,<3.13"
 pinocchio = ">=3.0"
@@ -19,6 +26,16 @@ huggingface-hub = ">=0.25"
 torch = ">=2.0"
 
 [tasks]
-walk = "python bheema/main.py"
-teleop = "python bheema/main_teleop.py"
+# bheema/ modules use absolute `from bheema.*` imports, so run them as modules
+# (the package root must be on sys.path, not the inner script dir).
+walk = "python -m bheema.main"
+teleop = "python -m bheema.main_with_teleop"
+# bheema_rl uses flat imports (`from teleop import ...`), so it must run as a
+# script with its own dir on sys.path — do not switch this to -m.
 rl = "python bheema_rl/main.py"
+# Terrain generation: `pixi run terrain --list` or `--scene stairs --view`
+terrain = "python -m bheema.terrain"
+# Regression gate -- run after any change to the control path
+check = "python -m bheema.benchmark check"
+# Phase-gate metrics sweep over the terrain scenes
+bench = "python -m bheema.benchmark bench"
